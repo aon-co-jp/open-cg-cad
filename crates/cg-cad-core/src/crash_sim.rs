@@ -36,7 +36,16 @@
 //! - リニアモーターカー・バイクも同一の質点+ばねモデルの延長として
 //!   扱っており、車両ごとに異なる構造特性(車体規模・軌道拘束等)の
 //!   詳細な違いは反映していない。
+//! - [`EnvironmentConditions`]/`apply_environment_conditions`による
+//!   「強風の日」「雨の日のスリップ」条件の統合は、`crosswind`/
+//!   `tire_wet_grip`モジュールが計算済みの参考指標(転倒安全率・
+//!   ウェットグリップ指標)を、衝突条件(初速・剛性)への単純な倍率へ
+//!   変換するだけの橋渡しであり、タイヤの摩擦円制約・車体スリップ角の
+//!   時々刻々の連成計算を行う本格的な車両運動力学ではない
+//!   (詳細は`EnvironmentConditions`のdocコメント参照)。
 
+use crate::crosswind::CrosswindResult;
+use crate::tire_wet_grip::WetGripResult;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
@@ -57,17 +66,27 @@ pub enum VehicleKind {
     Car,
     Motorcycle,
     Maglev,
+    Bus,
+    Truck,
+    Train,
 }
 
 impl VehicleKind {
     /// 参考として引用する乗員保護の目安値(G、単位はg=9.80665m/s^2)。
     /// **正直な開示**: 断定的な法規適合基準ではなく、一般的に引用される
-    /// 目安のオーダーに過ぎない。
+    /// 目安のオーダーに過ぎない。Bus/Truck/Trainは車体規模・乗員の
+    /// 拘束方式(座席配置・シートベルト有無等)の違いから、Car/Motorcycle
+    /// と同様に既存の一般的なオーダー感を参考に設定した目安値であり、
+    /// 特定の法規基準(道路運送車両の保安基準等)を直接引用したもの
+    /// ではない。
     pub fn reference_survivable_g(&self) -> f64 {
         match self {
             VehicleKind::Car => 60.0,
             VehicleKind::Motorcycle => 50.0,
             VehicleKind::Maglev => 30.0,
+            VehicleKind::Bus => 40.0,
+            VehicleKind::Truck => 35.0,
+            VehicleKind::Train => 25.0,
         }
     }
 }
@@ -97,6 +116,86 @@ impl CrashModel {
             }
         }
         Ok(())
+    }
+}
+
+/// 「強風の日」「雨の日のスリップ」といった環境条件を衝突シミュレーション
+/// の入力へ橋渡しするための簡易調整パラメータ。
+///
+/// **簡易近似(正直な開示、必読)**: 本格的な車両運動力学(タイヤの
+/// スリップ角・摩擦円制約・車体スリップ角を時々刻々連成計算する
+/// マルチボディダイナミクス)は一切行わない。あくまで
+/// [`crate::crosswind::evaluate_crosswind`]の転倒安全率と
+/// [`crate::tire_wet_grip::evaluate_wet_grip`]のウェットグリップ参考
+/// 指標という、**既に計算済みの2つの参考指標を、衝突条件を悪化させる
+/// 方向の単純な倍率へ変換するだけ**の橋渡しである。「環境条件が悪い
+/// ほど衝突エネルギーが増える/エアバッグ展開タイミングが早まる」という
+/// 参考シナリオ比較ができれば十分という位置づけで、実際の制動距離・
+/// 摩擦係数の物理量としての正確さは保証しない。
+#[derive(Debug, Clone, Copy)]
+pub struct EnvironmentConditions {
+    /// 横風の転倒安全率(`CrosswindResult::overturn_safety_factor`)。
+    /// 1.0未満で転倒リスク域の目安(値が小さいほど環境条件が厳しい)。
+    pub crosswind_overturn_safety_factor: f64,
+    /// 雨天時ウェットグリップ参考指標(`WetGripResult::wet_grip_index`、
+    /// 0〜100。値が小さいほど路面が滑りやすく環境条件が厳しい)。
+    pub wet_grip_index: f64,
+}
+
+impl EnvironmentConditions {
+    /// [`CrosswindResult`]・[`WetGripResult`]からそのまま組み立てる補助関数。
+    pub fn from_results(crosswind: &CrosswindResult, wet_grip: &WetGripResult) -> Self {
+        EnvironmentConditions { crosswind_overturn_safety_factor: crosswind.overturn_safety_factor, wet_grip_index: wet_grip.wet_grip_index }
+    }
+
+    /// 良好な環境条件(横風なし・乾燥路面)を表す基準値。
+    pub fn calm_and_dry() -> Self {
+        EnvironmentConditions { crosswind_overturn_safety_factor: f64::INFINITY, wet_grip_index: 100.0 }
+    }
+
+    /// ウェットグリップ指標(0〜100、低いほど滑りやすい)を、衝突直前の
+    /// 実効速度に掛ける倍率へ変換する。**簡易近似**: 「グリップが低い
+    /// ほど制動が効かず、同じ制動操作でも実際の衝突速度が下がりきらない」
+    /// という定性的傾向を、指標100(乾燥・良好)で倍率1.0、指標0
+    /// (極めて滑りやすい)で倍率1.5(実効速度が最大50%高いまま衝突する)
+    /// となる線形補間で表す。この1.5という上限は工学的な実測に基づく
+    /// ものではなく、シナリオ比較用の例示的な係数である。
+    fn slip_speed_multiplier(&self) -> f64 {
+        let grip = self.wet_grip_index.clamp(0.0, 100.0);
+        1.0 + 0.5 * (1.0 - grip / 100.0)
+    }
+
+    /// 横風の転倒安全率を、衝突剛性(ばね定数)を下げる倍率へ変換する。
+    /// **簡易近似**: 「横風で車体が不安定な状態(安全率が低い)ほど、
+    /// 衝突時に car body が姿勢を崩し正面からまっすぐ当たらないため、
+    /// 前面構造の実効的な圧壊剛性がやや下がる(横方向へ力が逃げる)」
+    /// という定性的傾向を、安全率2.0以上(安定)で倍率1.0、安全率1.0
+    /// (転倒限界)以下で倍率0.8(剛性が20%下がる)となる線形補間で表す。
+    fn crosswind_stiffness_multiplier(&self) -> f64 {
+        let safety = self.crosswind_overturn_safety_factor;
+        if !safety.is_finite() || safety >= 2.0 {
+            1.0
+        } else if safety <= 1.0 {
+            0.8
+        } else {
+            // safety in (1.0, 2.0): 線形補間で0.8→1.0
+            0.8 + 0.2 * (safety - 1.0)
+        }
+    }
+}
+
+/// [`CrashModel`]に環境条件を適用し、調整済みの新しいモデルを返す。
+/// 初速をウェットグリップ倍率で増やし、先頭ばね定数を横風倍率で
+/// 減らす(他のパラメータはそのまま)。呼び出し側で`simulate_crash`へ
+/// 渡す前に使う想定。
+pub fn apply_environment_conditions(model: &CrashModel, env: &EnvironmentConditions) -> CrashModel {
+    let speed_mult = env.slip_speed_multiplier();
+    let stiffness_mult = env.crosswind_stiffness_multiplier();
+    CrashModel {
+        masses_kg: model.masses_kg.clone(),
+        spring_constants_n_per_m: model.spring_constants_n_per_m.iter().map(|&k| k * stiffness_mult).collect(),
+        damping_ns_per_m: model.damping_ns_per_m.clone(),
+        initial_velocity_mps: model.initial_velocity_mps * speed_mult,
     }
 }
 
@@ -136,7 +235,7 @@ pub struct CrashSimResult {
     pub disclaimer: &'static str,
 }
 
-const G_MPS2: f64 = 9.80665;
+pub(crate) const G_MPS2: f64 = 9.80665;
 
 const DISCLAIMER: &str = "この結果は簡易的な1次元質点+ばね+ダンパーモデルによる数値積分のドラフトであり、\
 専門の衝突解析ソフトウェア(LS-DYNA等の非線形FEM)の代替ではない。\
@@ -355,10 +454,84 @@ mod tests {
         );
     }
 
+    /// 「同一の衝突条件で、ウェットグリップ指標が低い場合の方が最大
+    /// 加速度が大きい(または同等以上)」ことの検証。
+    #[test]
+    fn lower_wet_grip_yields_higher_or_equal_max_acceleration() {
+        let base_model = CrashModel {
+            masses_kg: vec![1200.0, 1.0e9],
+            spring_constants_n_per_m: vec![3.0e5],
+            damping_ns_per_m: vec![1000.0],
+            initial_velocity_mps: 10.0,
+        };
+        let dry = EnvironmentConditions { crosswind_overturn_safety_factor: f64::INFINITY, wet_grip_index: 100.0 };
+        let wet = EnvironmentConditions { crosswind_overturn_safety_factor: f64::INFINITY, wet_grip_index: 10.0 };
+
+        let dry_model = apply_environment_conditions(&base_model, &dry);
+        let wet_model = apply_environment_conditions(&base_model, &wet);
+
+        let dt = stable_time_step_s(&base_model);
+        let dry_result = simulate_crash(&dry_model, dt, 800).unwrap();
+        let wet_result = simulate_crash(&wet_model, dt, 800).unwrap();
+
+        assert!(
+            wet_result.max_acceleration_mps2 >= dry_result.max_acceleration_mps2,
+            "wet={}, dry={}",
+            wet_result.max_acceleration_mps2,
+            dry_result.max_acceleration_mps2
+        );
+    }
+
+    /// 「横風速度(転倒安全率の低下として表現)が大きい場合の方が衝突
+    /// 条件が厳しくなる」ことの検証(前面剛性が下がる分、同じ初速でも
+    /// 圧壊量〈変位〉が増える方向になることを確認)。
+    #[test]
+    fn lower_crosswind_safety_factor_increases_crush_displacement() {
+        let base_model = CrashModel {
+            masses_kg: vec![1200.0, 1.0e9],
+            spring_constants_n_per_m: vec![3.0e5],
+            damping_ns_per_m: vec![1000.0],
+            initial_velocity_mps: 10.0,
+        };
+        let calm = EnvironmentConditions { crosswind_overturn_safety_factor: f64::INFINITY, wet_grip_index: 100.0 };
+        let windy = EnvironmentConditions { crosswind_overturn_safety_factor: 1.0, wet_grip_index: 100.0 };
+
+        let calm_model = apply_environment_conditions(&base_model, &calm);
+        let windy_model = apply_environment_conditions(&base_model, &windy);
+
+        let dt = stable_time_step_s(&base_model);
+        let calm_result = simulate_crash(&calm_model, dt, 800).unwrap();
+        let windy_result = simulate_crash(&windy_model, dt, 800).unwrap();
+
+        assert!(
+            windy_result.max_crush_displacement_m >= calm_result.max_crush_displacement_m,
+            "windy={}, calm={}",
+            windy_result.max_crush_displacement_m,
+            calm_result.max_crush_displacement_m
+        );
+    }
+
+    #[test]
+    fn calm_and_dry_conditions_leave_model_unchanged() {
+        let base_model = CrashModel {
+            masses_kg: vec![1200.0, 1.0e9],
+            spring_constants_n_per_m: vec![3.0e5],
+            damping_ns_per_m: vec![1000.0],
+            initial_velocity_mps: 10.0,
+        };
+        let calm = EnvironmentConditions::calm_and_dry();
+        let adjusted = apply_environment_conditions(&base_model, &calm);
+        assert!((adjusted.initial_velocity_mps - base_model.initial_velocity_mps).abs() < 1e-9);
+        assert!((adjusted.spring_constants_n_per_m[0] - base_model.spring_constants_n_per_m[0]).abs() < 1e-9);
+    }
+
     #[test]
     fn vehicle_kind_reference_g_values_are_positive() {
         assert!(VehicleKind::Car.reference_survivable_g() > 0.0);
         assert!(VehicleKind::Motorcycle.reference_survivable_g() > 0.0);
         assert!(VehicleKind::Maglev.reference_survivable_g() > 0.0);
+        assert!(VehicleKind::Bus.reference_survivable_g() > 0.0);
+        assert!(VehicleKind::Truck.reference_survivable_g() > 0.0);
+        assert!(VehicleKind::Train.reference_survivable_g() > 0.0);
     }
 }

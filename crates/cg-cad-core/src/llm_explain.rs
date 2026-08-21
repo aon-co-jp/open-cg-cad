@@ -18,6 +18,7 @@
 //! なく、必ず一級建築士等の有資格者による確認が必要——この免責事項は
 //! 生成された説明文自体にも常に付加する(`ensure_disclaimer_appended`)。
 
+use crate::airbag::AirbagSimResult;
 use crate::crash_sim::CrashSimResult;
 use crate::structural::StructuralAnalysisResult;
 use crate::tunnel_noise::NoseOptimizationResult;
@@ -96,6 +97,37 @@ pub const CRASH_SIM_DISCLAIMER_JA: &str = "\n\n[免責事項] この説明文は
 正式な衝突安全性評価報告書ではありません。実際の車両設計・安全性認証には、必ず有資格の衝突安全性評価技術者による\
 確認が必要です。また元となる数値は、専門の衝突解析ソフトウェア(LS-DYNA等の非線形FEM)の代替ではない簡易的な\
 質点+ばね+ダンパーモデルによるドラフト値です。";
+
+/// この免責事項は、`aruaru-llm`が生成したエアバッグシミュレーション
+/// 説明文の末尾に必ず付加する。
+pub const AIRBAG_DISCLAIMER_JA: &str = "\n\n[免責事項] この説明文はAI(aruaru-llm)による参考情報であり、\
+正式なエアバッグ設計評価報告書ではありません。実際の車両設計・安全性認証には、必ず有資格の衝突安全性評価\
+技術者による確認が必要です。また元となる数値は、専門のガス発生器熱流体解析・ダミー人形モデルを用いた\
+有限要素解析の代替ではない、乗員1質点+ばね+ダンパーによる簡易近似モデルのドラフト値です。";
+
+/// [`AirbagSimResult`]から、aruaru-llmへ渡す説明依頼プロンプト(日本語)を
+/// 組み立てる(`build_crash_explanation_prompt`と同じ方針、計算はやり直させない)。
+pub fn build_airbag_explanation_prompt(result: &AirbagSimResult, airbag_label: &str) -> String {
+    format!(
+        "以下は、Rustの数値積分コードで既に計算済みの簡易エアバッグ乗員保護シミュレーション結果です\
+         (あなたは計算をやり直す必要はありません)。この数値結果を、専門知識のない読者にも\
+         分かりやすい日本語の説明文として要約してください。対象エアバッグ: {airbag_label}。\n\
+         展開時刻: {}\n\
+         乗員最大加速度: {:.2} m/s^2 ({:.1} G)",
+        result.deployment_time_s.map(|t| format!("{t:.4}秒")).unwrap_or_else(|| "展開なし".to_string()),
+        result.occupant_max_acceleration_mps2,
+        result.occupant_max_acceleration_g,
+    )
+}
+
+/// `aruaru-llm`の`POST /v1/generate`を実際に呼び出し、エアバッグ
+/// シミュレーション結果の説明文を取得する(`explain_crash_via_aruaru_llm`
+/// と同じHTTP連携方式)。
+pub fn explain_airbag_via_aruaru_llm(base_url: &str, result: &AirbagSimResult, airbag_label: &str) -> Result<String, LlmExplainError> {
+    let prompt = build_airbag_explanation_prompt(result, airbag_label);
+    let completion = call_generate(base_url, &prompt)?;
+    Ok(format!("{}{}", completion, AIRBAG_DISCLAIMER_JA))
+}
 
 /// この免責事項は、`aruaru-llm`が生成したトンネル微気圧波説明文の末尾に
 /// 必ず付加する。
@@ -234,6 +266,43 @@ mod tests {
     }
 
     #[test]
+    fn airbag_prompt_includes_key_numbers_and_does_not_ask_llm_to_recompute() {
+        use crate::airbag::AirbagSimResult;
+        let result = AirbagSimResult {
+            steps: vec![],
+            deployment_time_s: Some(0.0234),
+            occupant_max_acceleration_mps2: 392.0,
+            occupant_max_acceleration_g: 40.0,
+            disclaimer: "test",
+        };
+        let prompt = build_airbag_explanation_prompt(&result, "ハンドル(運転席)エアバッグ");
+        assert!(prompt.contains("40.0"));
+        assert!(prompt.contains("0.0234"));
+        assert!(prompt.contains("既に計算済み"));
+        assert!(prompt.contains("ハンドル(運転席)エアバッグ"));
+    }
+
+    #[test]
+    fn airbag_prompt_reports_no_deployment_honestly() {
+        use crate::airbag::AirbagSimResult;
+        let result = AirbagSimResult {
+            steps: vec![],
+            deployment_time_s: None,
+            occupant_max_acceleration_mps2: 5.0,
+            occupant_max_acceleration_g: 0.5,
+            disclaimer: "test",
+        };
+        let prompt = build_airbag_explanation_prompt(&result, "サイドエアバッグ");
+        assert!(prompt.contains("展開なし"));
+    }
+
+    #[test]
+    fn airbag_disclaimer_is_non_empty_and_mentions_qualified_engineer() {
+        assert!(!AIRBAG_DISCLAIMER_JA.trim().is_empty());
+        assert!(AIRBAG_DISCLAIMER_JA.contains("有資格"));
+    }
+
+    #[test]
     fn tunnel_noise_prompt_includes_best_candidate_and_does_not_ask_llm_to_recompute() {
         use crate::tunnel_noise::NoseShapeCandidateResult;
         let result = NoseOptimizationResult {
@@ -286,6 +355,25 @@ mod tests {
             disclaimer: "test",
         };
         let explanation = explain_crash_via_aruaru_llm(&base_url, &result, "普通乗用車").expect("aruaru-llm request must succeed");
+        assert!(!explanation.trim().is_empty());
+        assert!(explanation.contains("有資格"), "explanation must always carry the disclaimer: {explanation}");
+    }
+
+    /// 実aruaru-llmサーバーへのエアバッグシミュレーション説明文生成の
+    /// 統合テスト(実行方法は`explains_via_real_aruaru_llm_server`と同じ)。
+    #[test]
+    #[ignore = "requires a running aruaru-llm server; see ARUARU_LLM_TEST_URL"]
+    fn explains_airbag_via_real_aruaru_llm_server() {
+        use crate::airbag::AirbagSimResult;
+        let base_url = std::env::var("ARUARU_LLM_TEST_URL").unwrap_or_else(|_| "http://127.0.0.1:4600".to_string());
+        let result = AirbagSimResult {
+            steps: vec![],
+            deployment_time_s: Some(0.0234),
+            occupant_max_acceleration_mps2: 392.0,
+            occupant_max_acceleration_g: 40.0,
+            disclaimer: "test",
+        };
+        let explanation = explain_airbag_via_aruaru_llm(&base_url, &result, "ハンドル(運転席)エアバッグ").expect("aruaru-llm request must succeed");
         assert!(!explanation.trim().is_empty());
         assert!(explanation.contains("有資格"), "explanation must always carry the disclaimer: {explanation}");
     }
