@@ -47,6 +47,93 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-21(続き2) 衝突実験シミュレーション・トンネル微気圧波(騒音)
+  デザイン計算シミュレーターを追加実装(`structural.rs`実装パターン
+  〈簡易物理モデル+GPU加速行列演算+LLM説明+免責事項徹底〉を踏襲、
+  ユーザー指示)**:
+  1. **(a) 衝突シミュレーションの実装内容・数値検証結果**: `crates/
+     cg-cad-core/src/crash_sim.rs`を新設。車体を複数質点+ばね+ダンパー
+     で近似した1次元多質点モデルで、運動方程式`M x'' + C x' + K x = 0`を
+     陽解法(中心差分法系)で数値積分し、各質点の変位・速度・加速度の
+     時系列、最大加速度(G値換算含む)、最大圧壊変位を求める
+     (`simulate_crash`)。安定な時間刻み幅の目安を`stable_time_step_s`
+     で提供。乗員保護の参考G値は`VehicleKind::reference_survivable_g`
+     として車種別(Car/Motorcycle/Maglev)に用意したが、断定的な法規
+     適合判定は行わない設計。**数値検証**: 質量比を極端にして片側を
+     事実上の固定端とした2質点系(単振動の解析解が既知)と比較する
+     単体テストを実装し、振幅・最大加速度とも相対誤差5%以内で一致を
+     確認(`two_mass_undamped_matches_single_harmonic_oscillator_
+     period`)。加えて初速が大きいほど最大加速度が大きいこと・減衰が
+     あるほど最大圧壊変位が小さくなることも単体テストで検証済み
+     (計6テスト、全green)。
+  2. **(b) トンネル微気圧波シミュレーションの実装内容・数値検証結果**:
+     `crates/cg-cad-core/src/tunnel_noise.rs`を新設。列車先頭形状の
+     断面積分布を冪関数`A(x) = A_max*(x/L)^power`で近似
+     (`NoseShape`)、その断面積変化率の最大値`max(dA/dx)`を微気圧波
+     強度の簡易指標として計算(`micro_pressure_wave_index`、離散前進
+     差分演算子との行列-ベクトル積として実装)、複数の`power`候補を
+     グリッドサーチして指標最小の形状を提案する
+     (`optimize_nose_shape`)。**数値検証**: `power=1`(線形)・
+     `power=2`(2次)の断面積分布について解析的な導関数値を手計算し、
+     GEMM経由の離散微分結果と相対誤差2%以内で一致することを確認
+     (`linear_profile_matches_analytical_gradient`・
+     `quadratic_profile_matches_analytical_max_gradient_at_tail`)。
+     加えて「powerが大きいほど指標が大きい」「先頭形状が長いほど
+     指標が小さい」という工学的に妥当な単調性、グリッドサーチが
+     実際に最小指標の候補を選ぶことも単体テストで検証済み
+     (計6テスト、全green)。
+  3. **(c) GPU加速の実装・確認結果**: 両モジュールとも、`structural.rs`
+     と同一パターンで`opencuda_blas::sgemm`(`opencuda_cpu::CpuDevice`
+     経由、既存の実機検証済みGEMM実装)へ行列-ベクトル積をpath依存
+     させた——`crash_sim`は毎ステップの`K*x`・`C*x`計算、`tunnel_noise`
+     は離散微分演算子との積。新規のGPU計算コードは一切書いていない。
+     **正直な開示**: `structural.rs`のHANDOFFに記載済みの理由と同様、
+     今回のMVP規模(質点数・サンプル数とも小さい)ではCPU経路で十分
+     高速であり、実Vulkanデバイスへの切替による効果検証は見送った
+     (将来課題として`structural.rs`の既存記載を踏襲)。
+  4. **(d) aruaru-llm連携の実装内容・実機検証結果**: `crates/cg-cad-core/
+     src/llm_explain.rs`に`build_crash_explanation_prompt`/
+     `explain_crash_via_aruaru_llm`・`build_tunnel_noise_explanation_
+     prompt`/`explain_tunnel_noise_via_aruaru_llm`を追加(共通の
+     `POST /v1/generate`呼び出しロジックを`call_generate`として抽出し
+     3経路で共用、重複を避けた)。それぞれ専用の免責事項定数
+     (`CRASH_SIM_DISCLAIMER_JA`/`TUNNEL_NOISE_DISCLAIMER_JA`)を説明文
+     末尾に必ず付加する。**実際に`aruaru-llm.exe`
+     (`F:\runo\aruaru-llm\target\release\aruaru-llm.exe`、ポート4600)を
+     起動し、実HTTPリクエストで両シミュレーション結果の説明文が実際に
+     生成されることを確認済み**(`cargo test -p cg-cad-core --release --
+     -- ignored --nocapture`で`explains_crash_via_real_aruaru_llm_
+     server`・`explains_tunnel_noise_via_real_aruaru_llm_server`
+     〈構造計算側の既存`explains_via_real_aruaru_llm_server`と合わせて
+     計3件〉が実行時間合計約100秒で`ok`)。
+  5. **検証結果まとめ**: `cargo build --workspace --release`成功
+     (既存クレートへのregression無し)。`cargo test -p cg-cad-core
+     --release`**44件全green**(既存27件+`crash_sim`6件+
+     `tunnel_noise`6件+`llm_explain`新規5件、`#[ignore]`の実サーバー
+     統合テスト3件は上記4番の通り別途実行し全`ok`)。`cargo clippy -p
+     cg-cad-core --all-targets --release -- -D warnings`は初回
+     `needless_range_loop`警告1件を検出・修正後、警告0件を確認。
+  6. **(e) 簡略化している部分(正直な開示、モジュール冒頭のdocコメントにも
+     同内容を明記済み)**: 衝突シミュレーションは(i) 3次元ではなく1次元
+     (衝突方向のみ)の質点+ばね+ダンパー近似で、材料の塑性変形・破断
+     等の非線形挙動は表現していない、(ii) 陽解法(中心差分法系)のため
+     ステップ幅が粗いと数値的に不安定になりうる、(iii) 乗員保護の
+     参考G値は一般的に引用される目安のオーダーに過ぎず断定的な法規
+     適合判定ではない、(iv) リニアモーターカー・バイクも同一モデルの
+     延長として扱っており車両ごとの構造特性の違いは反映していない。
+     トンネル微気圧波は(v) 本格的な3次元CFD(Navier-Stokes)ではなく
+     `max(dA/dx)`という単純な代理指標による1次元近似、(vi) 圧力波の
+     伝播・トンネル出口での放射特性等は考慮していない、(vii)
+     グリッドサーチという最も単純な総当たり最適化に留まる。
+  7. **`git push`は今回も実施していない**(タスク指示通り、ユーザーからの
+     明示的な許可待ち)。
+  - 次にすべきこと: (1) ユーザーの許可を得た上で`git push`、(2) 実
+    Vulkanデバイス経由での`sgemm`実行への切替(現状は`structural.rs`と
+    同様CPU経路のみ)、(3)`crash_sim`の3次元化・材料非線形性の考慮、
+    (4)`tunnel_noise`のより精密な圧力波動方程式モデルへの拡張、(5)
+    生成CAD(`building`/`mesh`モジュール)との連携(例: 生成した建物の
+    重量・階高を`crash_sim`/`structural`の入力として自動連携させる)。
+
 - **2026-08-21(続き) 構造計算・耐震シミュレーションを実装(`structural`
   モジュール、それまでの「プレースホルダのみ・常にNotImplemented」
   から実装へ変更)、`aruaru-llm`連携(結果の自然言語説明)も実装・実HTTPで
