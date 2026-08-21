@@ -9,3 +9,9 @@ description = "AI工務店&AI建設ドラフト生成のコアロジック(敷�
 
 [dependencies]
 thiserror = "1"
+opencuda-core = { path = "../../../open-cuda/crates/opencuda-core" }
+opencuda-cpu = { path = "../../../open-cuda/crates/opencuda-cpu" }
+opencuda-blas = { path = "../../../open-cuda/crates/opencuda-blas" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

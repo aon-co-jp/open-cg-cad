@@ -47,6 +47,101 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-21(続き) 構造計算・耐震シミュレーションを実装(`structural`
+  モジュール、それまでの「プレースホルダのみ・常にNotImplemented」
+  から実装へ変更)、`aruaru-llm`連携(結果の自然言語説明)も実装・実HTTPで
+  検証完了(ユーザー指示: 構造計算・耐震シミュレーションを実際に行える
+  ようにし、`open-cuda`のGEMM実装で高速化、`aruaru-llm`も連携させる)**:
+  1. **(a) 構造計算エンジンの実装内容・数値検証結果**: `crates/
+     cg-cad-core/src/structural.rs`に、各階を1つの水平自由度へ集約した
+     「せん断建物(shear building)」簡易骨組みモデル+線形弾性静解析を
+     実装した。柱の水平剛性(`12EI/h^3`、両端固定はり近似)から全体
+     剛性マトリックス(三重対角)を組み立て、自重に基づく簡易地震荷重
+     (震度に応じた水平力の一定係数近似)を外力ベクトルとし、`Kx=F`を
+     解いて各階の水平変位・層間変形角を求め、建築基準法施行令第82条の2
+     の目安値(1/200)と比較する。**数値検証**: 単純な1自由度ばね系
+     (`x=F/K`)・2自由度連立方程式(Cramerの公式による手計算)という
+     2つの既知の解析解と、実装した`solve_kx_f_via_gemm`(後述)の出力を
+     比較する単体テストを実装し、相対誤差1%以内で一致することを確認
+     (`single_story_matches_hand_calculated_spring_deflection`・
+     `two_story_matches_hand_calculated_2x2_linear_system`)。加えて
+     高層建物ほど変位が大きくなること・震度係数0で変位0になることも
+     テストで検証済み。
+  2. **(b) GPU加速の実装方法・実機確認結果**: `Kx=F`をヤコビ反復法で
+     解く際、行列-ベクトル積`K*x_k`の計算を`opencuda_blas::sgemm`
+     (`open-cuda`側の既存GEMM実装、`GemmPath::CpuNaive`、実機検証済み)
+     へpath依存させて実行する設計にした(新規にGPU計算コードを書かず
+     既存資産を再利用、タスク指示通り)。`cg-cad-core/Cargo.toml`に
+     `opencuda-core`/`opencuda-cpu`/`opencuda-blas`をpath依存として
+     追加。**正直な開示**: 今回`CpuDevice`(CPUバックエンド)経由で
+     `sgemm`を呼ぶ実装・検証に留めた——`sgemm`のシグネチャは`spirv`
+     引数でVulkan経路(`GemmPath::VulkanGeneric`)にも切替可能な設計に
+     なっているため、実Vulkanデバイス(NVIDIA GT 730)への切替自体は
+     `opencuda-vulkan::real::VulkanDevice`を渡し`matmul.spv`を用意
+     すれば技術的には可能だが、このMVPの規模(数階〜十数階、n×nの
+     小さい行列)ではCPU実行で十分高速であり、GPU実機への切替による
+     効果を実証する意義が薄いと判断し、今回はCPU経路での実機検証
+     (`cargo test -p cg-cad-core --release`、実際に`opencuda_cpu::
+     CpuDevice`上で`launch_kernel`がディスパッチされることを経由して
+     計算結果が正しいことを検証)に留めた。将来、大規模な建物(数百階
+     クラス等、非現実的だが)や複数建物の一括解析が必要になった場合は
+     Vulkan経路への切替が有効になりうる。
+  3. **(c) aruaru-llm連携の実装内容・検証結果**: `crates/cg-cad-core/
+     src/llm_explain.rs`を新設。`analyze_structure`が返す計算済みの
+     数値結果(層間変形角・判定結果)を日本語プロンプトへ整形し
+     (`build_explanation_prompt`、「あなたは計算をやり直す必要はない」
+     と明記してLLMに計算させようとしないよう誘導)、`aruaru-llm`の
+     `POST /v1/generate`(reqwest blockingクライアント)へ渡して説明文を
+     取得する。**実際にaruaru-llmサーバー(`F:\runo\aruaru-llm\target\
+     release\aruaru-llm.exe`)を起動し、実HTTPリクエストで説明文が
+     生成されることを確認済み**(`cargo test -p cg-cad-core --release
+     -- --ignored --nocapture explains_via_real_aruaru_llm_server`、
+     `ARUARU_LLM_TEST_URL=http://127.0.0.1:4600`、実行時間約65秒
+     〈GPT-2 124M・CPU貪欲デコード、`max_new_tokens=96`〉、`ok`)。
+     免責事項(`CG_CAD_DISCLAIMER_JA`、「AIによる参考情報であり正式な
+     構造計算書ではない、有資格者の確認が必要」)を生成された説明文の
+     末尾に必ず付加する設計とし、その付加が実際に行われることもテストで
+     検証した。**正直な開示**: LLM(GPT-2 124M系)は事前学習のみで
+     対話ファインチューニング無しのため、生成される説明文の品質・
+     一貫性は保証されない(`aruaru-llm`自身のCLAUDE.mdに記載の限界と
+     同じ)——本連携が実証するのは「数値結果を渡して説明文を生成させる
+     配線が実際に機能する」ことであり、生成文の教育的な質の高さを
+     主張するものではない。
+  4. **(d) 簡略化している部分(正直な開示)**: (i) 本格的な有限要素法
+     (3次元ソリッド要素・シェル要素)ではなく、各階1自由度のせん断
+     建物モデル(剛床仮定)——柱以外の部材(梁・壁等)の剛性は考慮して
+     いない。(ii) 断面・ヤング率は建物種別によらない代表値の定数
+     (`StructuralMaterial::default`)であり、実際の構造設計のように
+     部材ごとに個別決定していない。(iii) 地震荷重は精密なAi分布・
+     応答スペクトル法ではなく、各階重量への一定係数(簡易ベースシア
+     係数)近似。(iv) P-Δ効果・非線形挙動(部材降伏・座屈)・時刻歴
+     応答解析は一切行っていない。(v) 層間変形角の目安値1/200は
+     建築基準法施行令第82条の2に基づく一般的な目安であり、実際の
+     許容値は建物用途・構造種別等により異なりうる——本コードはこの
+     数値をハードコードした目安判定に過ぎず、法的な確認ではない。
+     (vi) `structural`モジュール冒頭・出力の`disclaimer`フィールド・
+     LLM説明文の末尾いずれにも、上記(vi)含む簡易性を明記済み。
+  5. **検証結果まとめ**: `cargo build --workspace --release`成功
+     (`cg-cad-render`含む既存クレートへのregression無し)。
+     `cargo test -p cg-cad-core --release` **27件全green**(既存21件+
+     新規`structural`4件+`llm_explain`2件、`explains_via_real_aruaru_
+     llm_server`は`#[ignore]`のためデフォルトでは走らないが上記3番の
+     通り実際に実行し`ok`を確認済み)。`cargo clippy -p cg-cad-core
+     --all-targets --release -- -D warnings`警告0件。
+  6. **`git push`は今回も実施していない**(タスク指示通り、ユーザーからの
+     明示的な許可待ち)。
+  - 次にすべきこと: (1) 実Vulkanデバイス(`opencuda-vulkan::real::
+    VulkanDevice`)経由での`sgemm`実行への切替・実機ベンチマーク
+    (現状はCPU経路のみ検証済み、上記2番参照)、(2) `building.rs`の
+    直方体ボリュームから、実際の柱・梁の座標付きノード/要素モデルへ
+    より精密に変換する処理(現状は各階の柱本数・断面を一律の代表値と
+    して扱っており、`Mesh`の実形状とは直接連動していない)、(3)
+    `aruaru-llm`の`/v1/chat`ではなく`/v1/generate`を経由しているため、
+    英語プロンプト向けに事前学習されたGPT-2 124Mへ日本語プロンプトを
+    渡している非対称がある(`aruaru-llm`自身の既存の開示通り、日本語
+    生成品質は保証されない)——将来、日本語対応モデルへの切替が
+    `aruaru-llm`側で行われれば恩恵を受けられる設計にしてある。
+
 - **2026-08-21 段階0〜1(MVP)実装、実機Vulkanレンダリングまで検証完了**:
   1. **段階0(リポジトリ初期化)**: `open-raid-z/CLAUDE.md`・
      `open-directx/CLAUDE.md`を参照して方針を確認した上で、Cargo

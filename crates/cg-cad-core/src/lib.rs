@@ -8,8 +8,10 @@
 //! 生成物である。法的に確定した設計・建築確認申請に使える正式な図面を
 //! 生成するものでは断じてなく、必ず有資格者のレビューが必要。**
 //!
-//! - 日照権の実シミュレーション・耐震性の構造計算は未実装
-//!   (`structural`モジュール参照、専門ソフトウェアとの連携が必要)。
+//! - 日照権の実シミュレーションは未実装。耐震性の構造計算は、簡易骨組み
+//!   モデル+線形静解析(`structural`モジュール参照)としてMVP実装済みだが、
+//!   本格的なFEM・専門の構造計算ソフトウェアの代替ではない
+//!   (`structural`モジュールの免責事項を参照、省略しないこと)。
 //! - 建ぺい率・容積率等の法規制パラメータは、Web検索等による最新の
 //!   自動取得は行わず、ユーザーが設定する入力値として扱う
 //!   (`zoning`モジュール参照)。
@@ -17,6 +19,7 @@
 //!   した、意匠検討の叩き台レベルのドラフトである。
 
 pub mod building;
+pub mod llm_explain;
 pub mod material;
 pub mod mesh;
 pub mod site;
@@ -24,7 +27,8 @@ pub mod structural;
 pub mod zoning;
 
 pub use building::{generate_building, Building, BuildingType, CadError};
+pub use llm_explain::{build_explanation_prompt, explain_via_aruaru_llm, LlmExplainError};
 pub use mesh::{Mesh, MeshVertex};
 pub use site::{Site, SiteError};
-pub use structural::{check_structural_safety, StructuralCheckResult};
+pub use structural::{analyze_structure, StoryDriftResult, StructuralAnalysisResult, StructuralError, StructuralMaterial};
 pub use zoning::{check_zoning_compliance, ZoningError, ZoningRules};
