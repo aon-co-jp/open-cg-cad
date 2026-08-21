@@ -1,0 +1,11 @@
+[package]
+name = "cg-cad-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "AI工務店&AI建設ドラフト生成のコアロジック(敷地/法規制入力、建ぺい率・容積率チェック、直方体ベースの建築物ボリューム生成、メッシュ、マテリアル)。免責: このクレートが生成する結果は有資格者(一級建築士・宅地建物取引士等)によるレビューを必要とするドラフト/サンプルであり、建築確認申請等に使える法的に確定した設計ではない。"
+
+[dependencies]
+thiserror = "1"

@@ -1,0 +1,19 @@
+[package]
+name = "cg-cad-render"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "cg-cad-coreが生成したメッシュを、open-directxの既存の実Vulkanグラフィックスパイプライン(directx-graphics-vulkan)経由で実際にレンダリングするための橋渡し。実装は再利用のみで、レンダリングパイプライン自体を再実装しない(車輪の再発明を避ける、CLAUDE.md方針)。"
+
+[dependencies]
+cg-cad-core = { path = "../cg-cad-core" }
+thiserror = "1"
+
+# open-directxの既存の実Vulkanグラフィックスパイプライン(レンダーパス+
+# フレームバッファ+VkGraphicsPipelineCreateInfo、NVIDIA GT 730実機検証
+# 済み)をそのまま再利用する。このリポジトリ自身では新規にVulkanコードを
+# 書かず、既存クレートをpath依存として使うのみ(車輪の再発明を避ける)。
+directx-graphics-vulkan = { path = "../../../open-directx/crates/directx-graphics-vulkan" }
+directx-shader-translate = { path = "../../../open-directx/crates/directx-shader-translate" }
