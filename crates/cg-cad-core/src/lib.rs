@@ -24,6 +24,14 @@
 //!   (`zoning`モジュール参照)。
 //! - 生成される建築物形状は直方体(またはその単純な組み合わせ)に限定
 //!   した、意匠検討の叩き台レベルのドラフトである。
+//! - `crash_sim`・`tunnel_noise`・`structural`の各簡易モデルは、実在の
+//!   検証済みオープンソースCAE/CFDエンジン(CalculiX・OpenFOAM)が
+//!   この環境で利用できない場合の**簡易フォールバック**という位置づけ
+//!   である。本格的な解析が必要な場合は`solver_bridge`モジュール
+//!   (CalculiX/OpenFOAMへの入出力ブリッジ)を使うこと——ただし
+//!   `solver_bridge`自体は計算エンジンを持たず、実際のソルバー
+//!   バイナリがインストールされていない環境では正直にエラーを返す
+//!   設計である(`solver_bridge`モジュールのdocコメント参照)。
 
 pub mod building;
 pub mod crash_sim;
@@ -31,6 +39,7 @@ pub mod llm_explain;
 pub mod material;
 pub mod mesh;
 pub mod site;
+pub mod solver_bridge;
 pub mod structural;
 pub mod tunnel_noise;
 pub mod zoning;

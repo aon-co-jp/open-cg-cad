@@ -47,6 +47,102 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-21(続き3) 既存OSSソルバ(OpenFOAM/CalculiX)との連携統合層
+  (`solver_bridge`モジュール)を新規実装(ユーザー指示: 本格的なCFD/
+  非線形FEM衝突解析ソフトとして開発してほしいという要望に対し、
+  「既存の実在・検証済みOSSエンジンを子プロセスとして呼び出し、
+  open-cg-cadは入出力・可視化・LLM説明の統合層に徹する」方針で対応)**:
+  1. **(a) ソルバーの実在確認結果(正直な開示)**: この開発機(Windows 11)
+     には、ネイティブ版・WSL(Ubuntu、`wsl --list --verbose`で存在確認
+     済み)版のいずれにも`ccx`(CalculiX)・`blockMesh`/`simpleFoam`
+     (OpenFOAM)は**インストールされていない**(`Get-Command ccx`、
+     `wsl -e bash -lc "which ccx; which simpleFoam; which openfoam"`
+     のいずれも該当なし)。タスク指示により新規インストールは行って
+     いない。
+  2. **(b) 実装した統合層の内容**: `crates/cg-cad-core/src/
+     solver_bridge/`(`mod.rs`+`calculix.rs`+`openfoam.rs`)を新設し、
+     `lib.rs`から`pub mod solver_bridge;`として公開した。
+     - **入力ファイル変換層**: `calculix::export_inp`が`Building`の
+       メッシュbounding boxを軸並行グリッド(既定2x2x2、
+       `CalculixAnalysisOptions::grid_divisions`で変更可)のC3D8
+       六面体要素へ離散化し、Abaqus互換の`.inp`(`*NODE`/`*ELEMENT`/
+       `*MATERIAL`/`*BOUNDARY`/`*CLOAD`/`*STEP`)を文字列として生成する。
+       `openfoam::export_case`が`system/{blockMeshDict,controlDict,
+       fvSchemes,fvSolution}`・`constant/transportProperties`・
+       `0/{U,p}`という`simpleFoam`用の最小限だが構文的に妥当な
+       ケースディレクトリを実際にファイルシステムへ書き出す。
+     - **子プロセス呼び出し**: `calculix::run`(`ccx -i <job>`)・
+       `openfoam::run`(`blockMesh`→`simpleFoam`の順次実行)。
+       実行バイナリのパスは環境変数(`OPEN_CG_CAD_CCX_BIN`/
+       `OPEN_CG_CAD_BLOCKMESH_BIN`/`OPEN_CG_CAD_SIMPLEFOAM_BIN`、
+       既定はPATH上のコマンド名)で上書き可能。**タスク指示は
+       `tokio::process::Command`を例示していたが、既存コードベース
+       (`reqwest`のblockingクライアント使用等)が非同期ランタイムを
+       一切導入していないことと整合させるため、`std::process::
+       Command`(同期版)を採用した(正直な設計判断の記録、tokio
+       依存を新規追加しない選択)。**
+     - **結果ファイルのパーサー**: `calculix::parse_frd_displacements`
+       がCalculiXの`.frd`出力の`DISP`ブロック(節点変位)を解析して
+       `Vec<NodeDisplacement>`を返す。`openfoam::
+       parse_residuals_from_log`が`simpleFoam`の標準出力ログの
+       `Solving for <field>, Initial residual = <value>`行を解析して
+       `Vec<ResidualEntry>`を返す。**正直な開示(スコープ限定)**:
+       OpenFOAM側は、任意の複雑な3次元流れ場全体(通常`foamToVTK`等の
+       別ツール経由で得るバイナリ/ASCIIフィールドデータ)の完全な
+       パースまでは実装していない——それはOpenFOAM自体の後処理機能の
+       再実装に近づいてしまうためスコープ外とした(タスク指示の
+       「過大な実装はしない」に基づく判断、`openfoam.rs`冒頭の
+       docコメントに明記済み)。`open-directx`のVulkanレンダリング
+       パイプラインへの変位・応力分布の橋渡しは、CalculiX側
+       (`NodeDisplacement`→`Mesh`頂点変位)は今回のデータ構造として
+       実装済みだが、実際に`cg-cad-render`側へ配線する統合(可視化
+       パイプラインへの接続)は今回のスコープでは未着手(次回課題)。
+  3. **(c) 検証結果(実ソルバーが無い環境でのコードレベル検証)**:
+     `cargo test -p cg-cad-core --release`**58件全green**(既存44件+
+     `solver_bridge`系14件)。うち`ccx_binary_is_reported_as_unavailable_
+     in_this_environment`・`openfoam_binaries_are_reported_as_
+     unavailable_in_this_environment`・`run_returns_binary_not_found_
+     honestly_when_{ccx,openfoam}_is_absent`の4件は、**この環境で
+     実際にバイナリ不在→`SolverError::BinaryNotFound`が返る**ことを
+     直接検証するリグレッションテスト(動くふりをしないことの実機
+     保証)。加えて`export_inp_contains_expected_node_and_element_
+     counts`(生成された`.inp`の節点数・要素数がグリッド分割数から
+     計算した期待値と一致)・`export_case_writes_all_expected_files`
+     (実際にファイルシステムへ7ファイルすべてが書き出されることを
+     `std::fs`で確認)・`parse_frd_displacements_parses_hand_written_
+     sample_block`/`parse_residuals_from_log_parses_typical_
+     simplefoam_lines`(手書きの実フォーマット準拠サンプルに対する
+     パーサーの正しさ)を検証済み。`cargo build --workspace --release`
+     ・`cargo clippy -p cg-cad-core --all-targets --release --
+     -D warnings`いずれも成功・警告0件(初回`needless_borrow`・
+     `ptr_arg`の2件を検出・修正後)。**実際にccx/simpleFoamを起動して
+     の計算結果取得は、この環境にバイナリが無いため実施できていない**
+     (段階2の実機検証は前提条件が満たされず未達、正直な開示)。
+  4. **(d) 今後ユーザー側でOpenFOAM/CalculiXをインストールした場合の
+     利用手順**(`solver_bridge/mod.rs`冒頭のdocコメントにも同内容を
+     記載済み): (i) CalculiXをインストールし`ccx`がPATH上で実行可能に
+     なることを確認(別パスなら`OPEN_CG_CAD_CCX_BIN`にフルパスを設定)、
+     (ii) OpenFOAM(WSL経由が一般的)をインストールし`blockMesh`・
+     `simpleFoam`がPATH上で実行可能になることを確認、(iii) 上記の
+     いずれも、本モジュールの`export_*`→`run`→`parse_*`関数群は
+     コード変更無しでそのまま動く設計にしてある。
+  5. **簡易フォールバックとしての位置づけの明記**: `lib.rs`冒頭の
+     全体免責事項に、既存の`crash_sim`/`tunnel_noise`/`structural`が
+     「OSSソルバーが利用できない場合の簡易フォールバック」である旨を
+     追記した(削除はしていない、両方使える設計のまま)。
+  6. **`git push`は今回も実施していない**(タスク指示通り、ユーザーからの
+     明示的な許可待ち)。
+  - 次にすべきこと: (1) ユーザーの許可を得た上で`git push`、
+    (2) 実際にCalculiX/OpenFOAMをインストールできる環境が用意され次第、
+    段階2(実ケースの実行・実計算結果の取得)を実施する、(3)
+    `NodeDisplacement`の結果を`cg-cad-render`(`open-directx`のVulkan
+    パイプライン)側へ実際に配線し、変位で変形させたメッシュを描画する
+    統合、(4) OpenFOAM側の完全なフィールドデータ読み込み
+    (`foamToVTK`出力のVTKパーサー等、今回明示的にスコープ外とした
+    将来課題)、(5)`crash_sim`(非線形衝突)についても同様にCalculiXの
+    陽解法(`*DYNAMIC, EXPLICIT`)ケースへのエクスポートを追加する余地
+    がある(今回は静解析`*STATIC`のみ実装)。
+
 - **2026-08-21(続き2) 衝突実験シミュレーション・トンネル微気圧波(騒音)
   デザイン計算シミュレーターを追加実装(`structural.rs`実装パターン
   〈簡易物理モデル+GPU加速行列演算+LLM説明+免責事項徹底〉を踏襲、
