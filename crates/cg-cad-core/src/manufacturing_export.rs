@@ -26,6 +26,8 @@ pub enum ManufacturingExportError {
     IndexOutOfBounds(u32, usize),
     #[error("waypoints list must not be empty")]
     EmptyWaypoints,
+    #[error("failed to serialize robot arm path to JSON: {0}")]
+    SerializationFailed(String),
 }
 
 /// メッシュを標準的なASCII STLフォーマットの文字列へ変換する
@@ -131,7 +133,8 @@ pub fn robot_arm_path_to_json(
         scope_note: "実在するロボット制御言語(KUKA KRL/FANUC TP/URScript等)への変換は未対応。姿勢・速度・加減速プロファイル・TCP設定も含まない参考座標列のみ。".to_string(),
     };
 
-    serde_json::to_string_pretty(&path).map_err(|_| ManufacturingExportError::EmptyWaypoints)
+    serde_json::to_string_pretty(&path)
+        .map_err(|e| ManufacturingExportError::SerializationFailed(e.to_string()))
 }
 
 #[cfg(test)]
@@ -192,7 +195,10 @@ mod tests {
             indices: vec![0, 1, 2],
         };
         let err = mesh_to_stl_ascii(&mesh, "bad").unwrap_err();
-        matches!(err, ManufacturingExportError::IndexOutOfBounds(_, _));
+        assert!(
+            matches!(err, ManufacturingExportError::IndexOutOfBounds(0, 0)),
+            "expected IndexOutOfBounds(0, 0), got {err:?}"
+        );
     }
 
     #[test]
