@@ -47,6 +47,79 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-21(続き4) 車両・列車の空力/横風/タイヤ/駆動制御の簡易計算
+  モジュールと製造データ出力を新規実装(ユーザー指示: 列車・自動車・
+  スーパーカー・バス・トラック等のダウンフォース/耐横風/雨天スリップ
+  防止タイヤ/2WD〜8WD以上駆動制御の設計計算+製造データ出力)**:
+  1. **(a) 多言語調査結果(WebSearchツール実施、出典付き)**: 日本語・
+     英語・台湾語(繁体字)・中国語(簡体字)・ドイツ語の5言語すべてで
+     検索を実施できた(言語欠落なし)。
+     - 日本語: [ダウンフォース - Wikipedia](https://ja.wikipedia.org/wiki/%E3%83%80%E3%82%A6%E3%83%B3%E3%83%95%E3%82%A9%E3%83%BC%E3%82%B9)、
+       [ダウンフォースの発生原理とは？ - アルボンノート](https://albonnote.com/%E3%83%80%E3%82%A6%E3%83%B3%E3%83%95%E3%82%A9%E3%83%BC%E3%82%B9%E3%81%AE%E7%99%BA%E7%94%9F%E5%8E%9F%E7%90%86-%E5%88%9D%E5%BF%83%E8%80%85%E7%A9%BA%E5%8A%9B%E5%AD%A6%E8%AC%9B%E5%BA%A7/)
+     - 英語: [Downforce - Wikipedia](https://en.wikipedia.org/wiki/Downforce)、
+       [Road Vehicle Aerodynamic Design (Barnard)](https://www.academia.edu/29932775/Road_Vehicle_Aerodynamic_Design_SECOND_EDITION)、
+       IEEE Xplore「Torque Vectoring Algorithm of Electronic-Four-Wheel
+       Drive Vehicles」([link](https://ieeexplore.ieee.org/document/9023395/))、
+       [Analysis of the Wet Grip Characteristics of Tire Tread Patterns (ResearchGate)](https://www.researchgate.net/publication/324514710_Analysis_of_the_Wet_Grip_Characteristics_of_Tire_Tread_Patterns)、
+       [Comparative analysis of nose lengths on train aerodynamic performance under crosswind (ScienceDirect)](https://www.sciencedirect.com/science/article/abs/pii/S0889974617302724)
+     - 台湾語繁体字: [下壓力 - 維基百科](https://zh.wikipedia.org/zh-tw/%E4%B8%8B%E5%A3%93%E5%8A%9B)、
+       [汽車空氣動力學 - 維基百科](https://zh.wikipedia.org/zh-tw/%E6%B1%BD%E8%BB%8A%E7%A9%BA%E6%B0%A3%E5%8B%95%E5%8A%9B%E5%AD%B8)
+       (「車速快一倍，下壓力變四倍」という速度2乗則の記述を確認、
+       `aero.rs`のテストで実際に検証)
+     - 中国語簡体字: [汽车空气动力学 - 维基百科](https://zh.wikipedia.org/zh-hans/%E6%B1%BD%E8%BB%8A%E7%A9%BA%E6%B0%A3%E5%8B%95%E5%8A%9B%E5%AD%B8)、
+       [空气动力学之低难度解说升力与下压力(汽车之家)](https://chejiahao.autohome.com.cn/info/2088181)
+     - ドイツ語: [Fahrdynamik-Technik: Die Zukunft des Torque Vectoring (auto motor und sport)](https://www.auto-motor-und-sport.de/tech-zukunft/fahrdynamik-technik-elektroauto-torque-vectoring/)、
+       [Elektrischer Allradantrieb und Torque-Vectoring (HANSER automotive)](http://www.hanser-automotive.de/aktuelle-applikationen/article/elektrischer-allradantrieb-und-torque-vectoring.html)
+     - すべて学術論文・教科書・一般解説記事レベルの公開情報のみを参照し、
+       特定企業(BMW等)の企業秘密・特許技術そのものの調査・模倣は
+       行っていない(各モジュールのdocコメントにも明記)。
+  2. **(b) 実装した機能と検証結果**: `crates/cg-cad-core/src/`配下に
+     4モジュールを新規実装、`lib.rs`へ登録。いずれも`structural.rs`・
+     `crash_sim.rs`と同じ設計思想(簡易近似モデル+免責事項徹底)を踏襲。
+     - `aero.rs`: ベルヌーイの定理ベースの簡易ダウンフォース/揚力係数
+       計算。ダウンフォースが速度の2乗に比例すること(台湾語調査で
+       確認した一般原理と一致)・傾斜角増加で揚力が単調減少することを
+       テストで検証。
+     - `crosswind.rs`: 側面投影面積・重心高さから横風時の転倒モーメント・
+       安全率・限界風速を計算。風速増加で安全率が単調減少、重心が
+       高いほど限界風速が下がることを検証。
+     - `tire_wet_grip.rs`: トレッドの溝面積比率・溝深さ・サイプ密度から
+       排水性/エッジ効果/総合ウェットグリップ参考指標(0〜100)を計算。
+       溝が増えるほど指標が単調増加することを検証。
+     - `nwd_control.rs`: 公開されているトルクベクタリング理論
+       (三菱AYC以来の一般原理、IEEE論文等)に基づく2WD/4WD/6WD/8WD以上
+       の各輪トルク配分の教育的参考シミュレーション。直進(ヨー要求0)
+       で均等配分・非ゼロヨー要求で左右差が生じることを検証。
+     - 全モジュールとも`cargo test -p cg-cad-core --release`で
+       84件全テストパス(既存分含む)、`cargo clippy --all-targets
+       --release -- -D warnings`もクリーン(2件のmanual-is-multiple-of
+       警告を`is_multiple_of()`へ修正して解消)を実機確認済み。
+  3. **(c) 製造データ出力の実装内容と検証結果**:
+     `manufacturing_export.rs`を新規実装。
+     - STL(ASCII)エクスポート: `Mesh`から`solid`/`facet normal`/
+       `outer loop`/`vertex`×3/`endloop`/`endfacet`/`endsolid`の
+       標準構造を持つ文字列を生成。三角形数とfacet数の一致・
+       頂点法線の実際の算出(外積による)をテストで検証。
+     - ロボットアーム向け経路データ: 3D座標列(`waypoints`)+単位+
+       スコープ外事項の明記を含むJSON(serde_json)。JSON往復
+       (シリアライズ→デシリアライズ)で座標が保持されることを検証。
+  4. **(d) 簡略化・スコープ外とした部分(正直な開示)**:
+     - 空力: CFD・風洞実験ではなくベルヌーイ近似の線形モデル。地面効果・
+       乱流・コンボイ走行時の後流(ドラフティング)干渉は未対応。
+     - 横風: 静的モーメント釣り合いのみ。ロール剛性・サスペンション・
+       突風の時間変動・車両速度との合成風向は未対応。
+     - タイヤ: ゴム配合・接地圧分布・温度依存性・摩耗は未対応、あくまで
+       トレッド形状からの相対比較用スコア。
+     - 駆動制御: ブレーキベクタリング(負トルク側)は未対応、駆動トルクの
+       左右差配分のみ。摩擦円制約・軸重移動・実際のセンサ融合も未対応。
+     - 製造データ出力: 実在するロボット制御言語(KUKA KRL/FANUC TP/
+       URScript/G-code等)への変換は完全にスコープ外(`manufacturing_
+       export.rs`のdocコメントに明記)。IK・衝突回避・加減速プロファイル
+       も未対応。3Dプリンター側もSTLメッシュ生成のみでスライシング
+       (Gコード生成)は行っていない。
+     - 段階1〜3すべてを完了できたため、今回のセッションで持ち越しの
+       未完了タスクは無い。
+
 - **2026-08-21(続き3) 既存OSSソルバ(OpenFOAM/CalculiX)との連携統合層
   (`solver_bridge`モジュール)を新規実装(ユーザー指示: 本格的なCFD/
   非線形FEM衝突解析ソフトとして開発してほしいという要望に対し、

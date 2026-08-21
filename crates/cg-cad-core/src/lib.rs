@@ -33,14 +33,19 @@
 //!   バイナリがインストールされていない環境では正直にエラーを返す
 //!   設計である(`solver_bridge`モジュールのdocコメント参照)。
 
+pub mod aero;
 pub mod building;
 pub mod crash_sim;
+pub mod crosswind;
 pub mod llm_explain;
+pub mod manufacturing_export;
 pub mod material;
 pub mod mesh;
+pub mod nwd_control;
 pub mod site;
 pub mod solver_bridge;
 pub mod structural;
+pub mod tire_wet_grip;
 pub mod tunnel_noise;
 pub mod zoning;
 
