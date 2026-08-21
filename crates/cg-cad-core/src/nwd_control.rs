@@ -89,6 +89,12 @@ pub struct NwdControlResult {
 /// に比例した差分(トルクベクタリング)を加減する、という単純化した
 /// 最適配分の近似(実際にはタイヤの摩擦円制約・軸重配分等を考慮した
 /// 最適化問題として解かれることが多いが、本MVPでは線形近似に留める)。
+///
+/// **正直な開示(総トルク非保存のケース)**: 各輪の駆動トルクは0未満に
+/// ならないようクランプされる。`requested_yaw_moment_n_m`が大きすぎて
+/// このクランプが発動した場合、返される`wheel_torques`の合計は
+/// `total_drive_torque_n_m`と一致しなくなる(実際にはブレーキ
+/// ベクタリングで補うべきだが本MVPでは未対応)。
 pub fn simulate_torque_distribution(
     vehicle: &NwdVehicle,
     total_drive_torque_n_m: f64,
@@ -133,7 +139,12 @@ pub fn simulate_torque_distribution(
 
         // 駆動トルクは負にならないようクランプ(実際には反対側の輪への
         // ブレーキベクタリングで負のヨーモーメント要求を満たすが、本MVPの
-        // スコープ外として明記する)。
+        // スコープ外として明記する)。**正直な開示**: このクランプが
+        // 発動するほど大きい`requested_yaw_moment_n_m`を渡した場合、
+        // 結果の左右輪トルクの合計は`total_drive_torque_n_m`と一致
+        // しなくなる(クランプされた分がどこにも再配分されない)。
+        // つまり本関数は総駆動トルクの保存を無条件には保証しない——
+        // 呼び出し側は、必要に応じて`wheel_torques`の合計を検算すること。
         let left_torque = left_torque.max(0.0);
         let right_torque = right_torque.max(0.0);
 
@@ -217,6 +228,37 @@ mod tests {
         let per_wheel_4 = r4.wheel_torques[0].drive_torque_n_m;
         let per_wheel_8 = r8.wheel_torques[0].drive_torque_n_m;
         assert!((per_wheel_4 - 2.0 * per_wheel_8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn moderate_yaw_request_conserves_total_torque() {
+        // クランプが発動しない範囲では、総駆動トルクは保存される。
+        let v = NwdVehicle::default();
+        let total = 400.0;
+        let result = simulate_torque_distribution(&v, total, 50.0).unwrap();
+        let sum: f64 = result.wheel_torques.iter().map(|w| w.drive_torque_n_m).sum();
+        assert!(
+            (sum - total).abs() < 1e-6,
+            "expected total torque {total} to be conserved, got {sum}"
+        );
+    }
+
+    #[test]
+    fn extreme_yaw_request_clamps_and_breaks_total_torque_conservation() {
+        // ドキュメントに明記した通り、要求ヨーモーメントが大きすぎて
+        // 片側輪のトルクが0未満になる場合はクランプされる。反対側の輪は
+        // クランプされないため、合計はtotal_drive_torque_n_mから
+        // 乖離する(本ケースでは反対側が増える方向に、非保存)ことを検証する。
+        let v = NwdVehicle::default();
+        let total = 400.0;
+        let result = simulate_torque_distribution(&v, total, 1_000_000.0).unwrap();
+        let sum: f64 = result.wheel_torques.iter().map(|w| w.drive_torque_n_m).sum();
+        assert!(
+            (sum - total).abs() > 1.0,
+            "expected clamping to break total-torque conservation away from {total}, got {sum}"
+        );
+        // クランプされた輪は厳密に0であるはず。
+        assert!(result.wheel_torques.iter().any(|w| w.drive_torque_n_m == 0.0));
     }
 
     #[test]
