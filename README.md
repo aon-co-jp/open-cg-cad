@@ -34,7 +34,14 @@
   以下のモジュールを含む(主要な型・関数はいずれも`cg_cad_core::`直下
   からも参照可能):
   - `structural`: 簡易骨組みモデルによる構造計算・層間変形角判定。
-  - `crash_sim`: 車両衝突実験の質点+ばね+ダンパー簡易シミュレーション。
+  - `crash_sim`: 車両衝突実験の質点+ばね+ダンパー簡易シミュレーション
+    (Car/Motorcycle/Maglev/Bus/Truck/Train対応)。`crosswind`/
+    `tire_wet_grip`の参考指標を衝突条件へ変換する簡易橋渡し
+    (`EnvironmentConditions`/`apply_environment_conditions`)も提供。
+  - `airbag`: ハンドル(運転席)/助手席/カーテン/サイドの4種類の
+    エアバッグ展開タイミング・乗員保護効果の簡易シミュレーション。
+    `crash_sim`の車体加速度時系列を入力に、乗員1質点+ばね+ダンパーで
+    近似する。
   - `tunnel_noise`: トンネル微気圧波(騒音)軽減のための列車先頭形状
     デザイン計算。
   - `solver_bridge`: 既存OSSソルバー(CalculiX/OpenFOAM)への入出力

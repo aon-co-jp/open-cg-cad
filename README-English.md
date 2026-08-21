@@ -40,7 +40,16 @@ See [CLAUDE.md](CLAUDE.md) for details.
   re-exported at `cg_cad_core::` root):
   - `structural`: simplified frame-model structural analysis and
     inter-story drift checks.
-  - `crash_sim`: mass-spring-damper crash simulation for vehicles.
+  - `crash_sim`: mass-spring-damper crash simulation for vehicles
+    (Car/Motorcycle/Maglev/Bus/Truck/Train). Also provides a simplified
+    bridge (`EnvironmentConditions`/`apply_environment_conditions`) that
+    maps `crosswind`/`tire_wet_grip` reference indices onto crash
+    conditions ("windy day" / "wet-road slip" scenarios).
+  - `airbag`: simplified deployment-timing and occupant-protection
+    simulation for four airbag types (driver frontal, passenger frontal,
+    curtain, side), approximating the occupant as a single mass-spring-
+    damper degree of freedom driven by `crash_sim`'s body acceleration
+    time series.
   - `tunnel_noise`: train nose-shape design calculation for tunnel
     micro-pressure wave (boom) reduction.
   - `solver_bridge`: I/O bridge to existing OSS solvers (CalculiX /
