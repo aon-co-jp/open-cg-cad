@@ -13,8 +13,11 @@
 「法的に確定した設計」「建築確認申請に使える正式な図面」を生成するもの
 では断じてなく、必ず有資格者のレビューが必要。**
 
-- 構造計算・耐震シミュレーションは未実装(専門ソフトウェアとの連携が
-  必要、`cg-cad-core::structural`参照)。
+- 構造計算・耐震シミュレーションは、各階を1自由度に集約した簡易骨組み
+  モデル+線形静解析としてMVP実装済み(`cg-cad-core::structural`)だが、
+  本格的なFEM・専門の構造計算ソフトウェアの代替ではない。より本格的な
+  解析には`cg-cad-core::solver_bridge`経由でCalculiX/OpenFOAM(別途
+  ユーザー側でインストールが必要)を呼び出せる設計。
 - 法規制パラメータ(建ぺい率・容積率の上限値等)は、Web検索等による
   最新情報の自動取得は行わず、**ユーザーが設定する入力値**として扱う
   (今回のスコープ外、将来課題)。
@@ -28,6 +31,26 @@
 - [`crates/cg-cad-core`](crates/cg-cad-core): 敷地(`Site`)・法規制
   (`ZoningRules`)・建物種別(`BuildingType`)・メッシュ(`Mesh`)・
   マテリアル・建築物ボリューム生成(`generate_building`)のコアロジック。
+  以下のモジュールを含む(主要な型・関数はいずれも`cg_cad_core::`直下
+  からも参照可能):
+  - `structural`: 簡易骨組みモデルによる構造計算・層間変形角判定。
+  - `crash_sim`: 車両衝突実験の質点+ばね+ダンパー簡易シミュレーション。
+  - `tunnel_noise`: トンネル微気圧波(騒音)軽減のための列車先頭形状
+    デザイン計算。
+  - `solver_bridge`: 既存OSSソルバー(CalculiX/OpenFOAM)への入出力
+    ブリッジ(実行バイナリが無い環境では正直にエラーを返す)。
+  - `aero`: 車両・列車の簡易空力(揚力/ダウンフォース)計算。
+  - `crosswind`: 横風時の転倒モーメント・限界風速の簡易計算。
+  - `tire_wet_grip`: タイヤトレッドパターンの雨天時グリップ簡易参考指標。
+  - `nwd_control`: 2WD〜8WD以上の駆動トルク配分(トルクベクタリング)
+    簡易シミュレーション。
+  - `manufacturing_export`: STL(3Dプリンター向け)・ロボットアーム
+    経路JSONの製造データ出力。
+  - `llm_explain`: [`aruaru-llm`](https://github.com/aon-co-jp/aruaru-llm)
+    連携による計算結果の自然言語説明。
+  - いずれも簡易近似モデルであり、各モジュール冒頭のdocコメントに
+    簡略化している点・スコープ外事項を明記している(省略・弱化しない
+    方針、詳細は各ソースファイル参照)。
 - [`crates/cg-cad-render`](crates/cg-cad-render): `cg-cad-core`が
   生成したメッシュを、[`open-directx`](https://github.com/aon-co-jp/open-directx)
   の既存の実Vulkanグラフィックスパイプライン(実機NVIDIA GT 730検証済み)
@@ -48,7 +71,12 @@ cargo test --workspace --release
 
 - [`open-directx`](https://github.com/aon-co-jp/open-directx):
   3Dレンダリングの実行基盤(`directx-graphics-vulkan`をpath依存で再利用)。
-- [`open-cuda`](https://github.com/aon-co-jp/open-cuda) /
-  [`aruaru-llm`](https://github.com/aon-co-jp/aruaru-llm): 将来の
-  GPU計算基盤・自然言語による仕様変更インターフェースとしての活用を
-  見据えるが、今回のセッションでは直接の技術的依存関係は追加していない。
+- [`open-cuda`](https://github.com/aon-co-jp/open-cuda): `structural`/
+  `crash_sim`/`tunnel_noise`の行列演算を`opencuda-blas`のGEMM実装
+  (`CpuDevice`経由)へpath依存させている。実Vulkanデバイス経由への
+  切替は現状の規模では効果検証の意義が薄いと判断し見送っている
+  (CLAUDE.mdのHANDOFF参照)。
+- [`aruaru-llm`](https://github.com/aon-co-jp/aruaru-llm): `llm_explain`
+  モジュールが`POST /v1/generate`経由で計算結果の自然言語説明を取得
+  する(実サーバーでの検証はCI環境では走らない`#[ignore]`テストとして
+  存在、CLAUDE.mdのHANDOFF参照)。
