@@ -49,15 +49,24 @@ pub mod tire_wet_grip;
 pub mod tunnel_noise;
 pub mod zoning;
 
+pub use aero::{estimate_aero_force, AeroError, AeroForceResult, AeroShape};
 pub use building::{generate_building, Building, BuildingType, CadError};
 pub use crash_sim::{simulate_crash, CrashModel, CrashSimError, CrashSimResult, CrashStep, VehicleKind};
+pub use crosswind::{evaluate_crosswind, CrosswindError, CrosswindResult, CrosswindVehicle};
 pub use llm_explain::{
     build_crash_explanation_prompt, build_explanation_prompt, build_tunnel_noise_explanation_prompt, explain_crash_via_aruaru_llm,
     explain_tunnel_noise_via_aruaru_llm, explain_via_aruaru_llm, LlmExplainError,
 };
+pub use manufacturing_export::{
+    mesh_to_stl_ascii, robot_arm_path_to_json, ManufacturingExportError, RobotArmPath,
+};
 pub use mesh::{Mesh, MeshVertex};
+pub use nwd_control::{
+    simulate_torque_distribution, NwdControlError, NwdControlResult, NwdVehicle, WheelSide, WheelTorque,
+};
 pub use site::{Site, SiteError};
 pub use structural::{analyze_structure, StoryDriftResult, StructuralAnalysisResult, StructuralError, StructuralMaterial};
+pub use tire_wet_grip::{evaluate_wet_grip, TireWetGripError, TreadPattern, WetGripResult};
 pub use tunnel_noise::{
     micro_pressure_wave_index, optimize_nose_shape, NoseOptimizationResult, NoseShape, NoseShapeCandidateResult, TunnelNoiseError,
 };
