@@ -47,6 +47,49 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-23 トンネル微気圧波指標を O(n^2) から O(n) へ(実測 105.6 倍)**:
+  `crates/cg-cad-core/src/tunnel_noise.rs` の
+  `micro_pressure_wave_index` は、断面積プロファイルの微分
+  `dA/dx` を求めるために **各行に非ゼロが 2 個しかない前進差分行列を
+  密行列として実体化**し、`opencuda_blas::sgemm` で行列-ベクトル積を
+  取っていた。`num_samples = 2000` では約 400 万要素(16 MiB)の行列を
+  呼び出しのたびに組み立てており、O(n^2) の領域確保と積和が発生していた。
+
+  数学的には隣接 2 点の差分でしかないため、`open-cpu` の
+  [`axpy_f32`](https://github.com/aon-co-jp/open-cpu) を 2 回呼ぶ
+  O(n) の実装へ置き換えた(`d = -inv_dx * A[..n-1]` を作り、そこへ
+  `+inv_dx * A[1..]` を足す。いずれも連続アクセスなので AVX2+FMA3 で
+  SIMD 化される。非対応 CPU では自動的にスカラーへフォールバック)。
+
+  **実測**(Ryzen 9 3950X、`cargo test --release -p cg-cad-core
+  manual_bench_fast_vs_gemm -- --ignored --nocapture`):
+  ```
+  n=  500  gemm(O(n^2)): 0.605 ms  fast(O(n)): 0.0213 ms  ( 28.4x)
+  n= 1000  gemm(O(n^2)): 1.452 ms  fast(O(n)): 0.0419 ms  ( 34.6x)
+  n= 2000  gemm(O(n^2)): 6.769 ms  fast(O(n)): 0.0641 ms  (105.6x)
+  ```
+
+  旧実装は `micro_pressure_wave_index_gemm` として残し、
+  power 5 通り × num_samples 6 通りで両者の結果が一致することを
+  テストで検証している(結果が変わっていないことの保証)。
+  **`cargo test --release -p cg-cad-core` 全 101 テスト通過**。
+
+  **正直な開示**: 高速化の主因は SIMD ではなく **アルゴリズムの是正**
+  (O(n^2) → O(n))である。SIMD(`axpy_f32`)はその上に乗っている
+  副次的な効果にすぎない。SIMD だけで 105 倍出たかのように書かないこと。
+
+- **CPU 負荷の調査結果(今回、リポジトリ全体を棚卸し)**:
+  上記以外で SIMD 高速化の対象になり得る処理を探したが、
+  該当は無かった。`crash_sim.rs` / `structural.rs` は反復回数は多いが
+  1 回あたりのベクトル長が数要素しかなく(集中質量数・階数)、
+  支配的なのは毎回の `Vec` 確保と `CpuDevice::new(0)` の生成コストで
+  ある。`airbag.rs` の占有者運動積分は逐次依存で並列化・ベクトル化
+  不能。メッシュ生成は直方体(8 頂点 / 36 インデックス)のみ。
+  - 次にすべきこと: `crash_sim.rs` / `structural.rs` は **SIMD ではなく
+    アロケーション削減**(呼び出しごとの `Vec` 確保と `CpuDevice`
+    生成をループ外へ出す)が効く。今回は範囲外として未着手。
+
+
 - **2026-08-21(続き5) 車両種別拡張(Bus/Truck/Train)・エアバッグ4種
   シミュレーション(`airbag`モジュール新設)・環境条件(強風/雨天スリップ)
   の衝突シミュレーションへの統合を実装(ユーザー指示)**:

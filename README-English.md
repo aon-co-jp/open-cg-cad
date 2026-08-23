@@ -102,3 +102,48 @@ a pass, when none is present).
   computed results via `POST /v1/generate`. Real-server verification
   exists as an `#[ignore]`d test that doesn't run in CI by default (see
   CLAUDE.md's HANDOFF log).
+
+
+---
+
+## Update 2026-08-23 — Tunnel micro-pressure-wave index: O(n^2) → O(n) (measured 105.6x)
+
+`micro_pressure_wave_index` in
+`crates/cg-cad-core/src/tunnel_noise.rs` computed the cross-section
+derivative `dA/dx` by **materializing a dense forward-difference matrix**
+— a matrix with only two non-zeros per row — and running it through
+`opencuda_blas::sgemm`. At `num_samples = 2000` that meant building a
+~4-million-element (16 MiB) matrix on every call, with O(n^2) allocation
+and multiply-accumulate work.
+
+Mathematically it is just a difference of adjacent samples, so it was
+replaced with an O(n) formulation built from two `open_cpu::axpy_f32`
+calls (`d = -inv_dx * A[..n-1]`, then `+= inv_dx * A[1..]`). Both are
+contiguous, so they vectorize under AVX2+FMA3 and fall back to scalar
+automatically on CPUs without it.
+
+Measured on a Ryzen 9 3950X:
+
+```
+n=  500  gemm(O(n^2)): 0.605 ms   fast(O(n)): 0.0213 ms   ( 28.4x)
+n= 1000  gemm(O(n^2)): 1.452 ms   fast(O(n)): 0.0419 ms   ( 34.6x)
+n= 2000  gemm(O(n^2)): 6.769 ms   fast(O(n)): 0.0641 ms   (105.6x)
+```
+
+The old implementation is retained as `micro_pressure_wave_index_gemm`,
+and a test asserts the two agree across 5 power values x 6 sample counts,
+guaranteeing the results did not change. **All 101 tests pass.**
+
+**Honest disclosure**: the speedup comes primarily from the **algorithmic
+fix** (O(n^2) → O(n)), not from SIMD. The `axpy_f32` vectorization is a
+secondary effect on top of it. Do not read this as "SIMD gave us 105x".
+
+### CPU-load audit of the rest of the repository
+
+No other SIMD candidates were found. `crash_sim.rs` and `structural.rs`
+iterate many times but each step operates on only a handful of elements
+(lumped masses, storeys); the dominant cost there is the per-call `Vec`
+allocation and `CpuDevice::new(0)` construction, so **reducing allocations,
+not SIMD, is the right fix** (not done in this session). The airbag
+occupant integrator is sequentially dependent and cannot be vectorized.
+Mesh generation only ever handles cuboids (8 vertices, 36 indices).

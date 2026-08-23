@@ -12,6 +12,8 @@ thiserror = "1"
 opencuda-core = { path = "../../../open-cuda/crates/opencuda-core" }
 opencuda-cpu = { path = "../../../open-cuda/crates/opencuda-cpu" }
 opencuda-blas = { path = "../../../open-cuda/crates/opencuda-blas" }
+# CPU 命令セット検出・組み合わせディスパッチの共通基盤(2026-08-23 追加)
+open-cpu = { path = "../../../open-cpu" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -114,10 +114,47 @@ fn forward_difference_operator(num_samples: usize, dx: f64) -> Vec<f32> {
     d
 }
 
-/// 微気圧波強度の簡易指標(`max(dA/dx)`)を、`opencuda_blas::sgemm`
-/// (既存の実機検証済みGEMM実装)による離散微分演算子との行列-ベクトル積
-/// として計算する。
+/// 微気圧波強度の簡易指標(`max(dA/dx)`)。
+///
+/// 【2026-08-23 高速化】従来は `(num_samples-1) x num_samples` の **密な**
+/// 前進差分行列を実体化し、`opencuda_blas::sgemm` で行列-ベクトル積を
+/// 取っていた。これは各行に非ゼロが 2 個しかない行列に対して O(n^2) の
+/// 領域確保と O(n^2) の積和を行う無駄であり、`num_samples = 2000` では
+/// 約 400 万要素(16 MiB)の行列を毎回組み立てていた。数学的には
+/// 隣接 2 点の差分でしかないため、O(n) の直接ループへ置き換えた。
+///
+/// 差分そのものは連続配列上の要素ごとの減算なので、`open-cpu` の
+/// [`open_cpu::axpy_f32`] を使ってベクトル化する
+/// (`d = -a[..n-1] * inv_dx` を作り、そこへ `+inv_dx * a[1..]` を足す)。
+/// AVX2+FMA3 が揃っていれば SIMD 経路、無ければスカラーへ自動フォールバック。
+///
+/// 旧実装(GEMM 経由)は [`micro_pressure_wave_index_gemm`] として残してあり、
+/// 両者が一致することをテストで検証している。
 pub fn micro_pressure_wave_index(shape: &NoseShape, num_samples: usize) -> Result<f64, TunnelNoiseError> {
+    shape.validate()?;
+    if num_samples < 2 {
+        return Err(TunnelNoiseError::TooFewSamples(num_samples));
+    }
+    let dx = shape.nose_length_m / (num_samples - 1) as f64;
+    let area_profile = discretize_area_profile(shape, num_samples);
+    let inv_dx = (1.0 / dx) as f32;
+
+    let rows = num_samples - 1;
+    // d[i] = (A[i+1] - A[i]) / dx を、-inv_dx*A[i] → +inv_dx*A[i+1] の
+    // 2 段の axpy として計算する(いずれも連続アクセスなのでSIMD化できる)。
+    let mut d_area = vec![0.0f32; rows];
+    open_cpu::axpy_f32(&mut d_area, &area_profile[..rows], -inv_dx);
+    open_cpu::axpy_f32(&mut d_area, &area_profile[1..], inv_dx);
+
+    let max_grad = d_area.iter().fold(0.0f32, |m, &v| m.max(v.abs()));
+    Ok(max_grad as f64)
+}
+
+/// 旧実装: 密な差分行列 + `opencuda_blas::sgemm` による O(n^2) 版。
+///
+/// [`micro_pressure_wave_index`] の正しさを検証するための参照実装として
+/// 残している。実運用では O(n) 版を使うこと。
+pub fn micro_pressure_wave_index_gemm(shape: &NoseShape, num_samples: usize) -> Result<f64, TunnelNoiseError> {
     shape.validate()?;
     if num_samples < 2 {
         return Err(TunnelNoiseError::TooFewSamples(num_samples));
@@ -191,6 +228,58 @@ pub fn optimize_nose_shape(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// O(n) 版と旧 GEMM 版が一致すること(高速化で結果が変わっていないこと)。
+    #[test]
+    fn fast_path_matches_gemm_reference() {
+        for &power in &[1.0f64, 1.5, 2.0, 2.5, 3.0] {
+            for &n in &[2usize, 3, 17, 500, 1000, 2000] {
+                let shape = NoseShape { nose_length_m: 15.0, max_cross_section_m2: 12.0, power };
+                let fast = micro_pressure_wave_index(&shape, n).expect("valid shape");
+                let slow = micro_pressure_wave_index_gemm(&shape, n).expect("valid shape");
+                let tol = 1e-4 * slow.abs().max(1.0);
+                assert!(
+                    (fast - slow).abs() <= tol,
+                    "power={power} n={n} fast={fast} slow={slow}"
+                );
+            }
+        }
+    }
+
+    /// O(n) 版と旧 O(n^2) GEMM 版の速度比較(手動実行)。
+    /// `cargo test --release -p cg-cad-core tunnel_noise::tests::manual_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn manual_bench_fast_vs_gemm() {
+        use std::time::Instant;
+        let shape = NoseShape { nose_length_m: 15.0, max_cross_section_m2: 12.0, power: 2.0 };
+        for &n in &[500usize, 1000, 2000] {
+            let reps = 20;
+            let t = Instant::now();
+            for _ in 0..reps {
+                let _ = micro_pressure_wave_index_gemm(&shape, n);
+            }
+            let slow = t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            for _ in 0..reps {
+                let _ = micro_pressure_wave_index(&shape, n);
+            }
+            let fast = t.elapsed().as_secs_f64();
+            println!(
+                "n={n:5}  gemm(O(n^2)): {:9.3} ms  fast(O(n)): {:9.4} ms  ({:.1}x)",
+                slow * 1000.0 / reps as f64,
+                fast * 1000.0 / reps as f64,
+                slow / fast
+            );
+        }
+    }
+
+    /// open-cpu の検出結果が取得できること(CPU経路の可視化)。
+    #[test]
+    fn cpu_runtime_is_reported() {
+        println!("{}", open_cpu::runtime_report());
+        assert!(!open_cpu::isa_summary().is_empty());
+    }
 
     /// 既知の解析解との比較: `A(x) = A_max * (x/L)^power`の解析的な導関数は
     /// `dA/dx = A_max * power / L * (x/L)^(power-1)`であり、`power >= 1`の
