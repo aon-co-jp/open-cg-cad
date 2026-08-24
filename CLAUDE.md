@@ -47,6 +47,16 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-24 3リポジトリ横断テスト・E2E検証サイクル(2周、本リポジトリは
+  変更なし)**: `open-cg-cad`/`open-fudousan`/`open-koumuten`横断で
+  build/test/clippyと実HTTP E2E確認を2周実施。本リポジトリは
+  `cargo build/test/clippy --workspace --release`(clippyは
+  `--all-targets -- -D warnings`)いずれも問題なし(105テスト全green、
+  警告0)。`cg-cad-render`のVulkan実機テストも含めて実施
+  (`house_render_real_vulkan.rs`)。コード変更は無し。見つかったバグ
+  (`open-koumuten`側の入力検証漏れ)の詳細は
+  `open-koumuten/CLAUDE.md`のHANDOFF参照。
+
 - **2026-08-23 トンネル微気圧波指標を O(n^2) から O(n) へ(実測 105.6 倍)**:
   `crates/cg-cad-core/src/tunnel_noise.rs` の
   `micro_pressure_wave_index` は、断面積プロファイルの微分
