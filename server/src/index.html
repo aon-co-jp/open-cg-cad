@@ -59,10 +59,15 @@
   <label>カテゴリ / Category
     <select id="drawing-category">
       <option value="building">建築 / Building</option>
+      <option value="bridge">橋 / Bridge</option>
+      <option value="tunnel">トンネル / Tunnel</option>
       <option value="semiconductor">半導体 / Semiconductor</option>
+      <option value="cpu_npu_gpu">CPU / NPU / GPU</option>
       <option value="lsi">LSI</option>
       <option value="custom_ic">カスタムIC / Custom IC</option>
       <option value="automotive">自動車 / Automotive</option>
+      <option value="aircraft">航空機・ジャンボジェット / Aircraft</option>
+      <option value="rail_vehicle">鉄道車両 / Rail vehicle</option>
       <option value="part">部品 / Part</option>
       <option value="other">その他 / Other</option>
     </select>
@@ -234,6 +239,35 @@ async function analyzeDrawing(id, containerEl) {
   }
 }
 
+// 拡張子からMIMEタイプを推定する(PDF/画像/その他バイナリのダウンロード
+// 時にブラウザが適切に扱えるようにするための簡易マッピング、2026-08-25
+// 追加)。DB自体はファイル形式を一切区別せずBLOBとして保存している
+// (アップロード時から変更無し)——ここはダウンロード時の表示用のみ。
+function guessMimeType(filename) {
+  const ext = filename.toLowerCase().split(".").pop();
+  const map = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", gif: "image/gif" };
+  return map[ext] || "application/octet-stream";
+}
+
+async function downloadDrawing(id, filename) {
+  const res = await fetch(apiUrl("v1/drawings/get?id=" + encodeURIComponent(id)));
+  const data = await res.json();
+  if (!data.ok) {
+    alert("ダウンロードに失敗しました / Download failed: " + (data.error || "unknown"));
+    return;
+  }
+  const bytes = Uint8Array.from(atob(data.drawing.data_base64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: guessMimeType(filename) });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function loadDrawings() {
   const listEl = document.getElementById("drawings-list");
   listEl.textContent = "読み込み中... / Loading...";
@@ -260,7 +294,12 @@ async function loadDrawings() {
       const analysisEl = document.createElement("div");
       analysisEl.className = "drawing-analysis";
       btn.addEventListener("click", () => analyzeDrawing(d.id, analysisEl));
+      const downloadBtn = document.createElement("button");
+      downloadBtn.type = "button";
+      downloadBtn.textContent = "⬇ ダウンロード / Download";
+      downloadBtn.addEventListener("click", () => downloadDrawing(d.id, d.filename));
       row.appendChild(btn);
+      row.appendChild(downloadBtn);
       row.appendChild(analysisEl);
       listEl.appendChild(row);
     });
