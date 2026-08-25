@@ -52,6 +52,7 @@ pub mod manufacturing_export;
 pub mod material;
 pub mod mesh;
 pub mod nwd_control;
+pub mod rail_vehicle;
 pub mod site;
 pub mod solver_bridge;
 pub mod structural;
