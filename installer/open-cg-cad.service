@@ -1,0 +1,14 @@
+[Unit]
+Description=open-cg-cad server (easy-web.tokyo/open-cg-cad)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/easy-web.tokyo/open-cg-cad/target/release
+Environment=OPEN_CG_CAD_SERVER_BIND=127.0.0.1:8105
+ExecStart=/root/easy-web.tokyo/open-cg-cad/target/release/open-cg-cad-server
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

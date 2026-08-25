@@ -47,6 +47,45 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25(続き10) easy-web.tokyoへ実際にデプロイして公開(ユーザー
+  指示②)**: open-englishの既存デプロイ手順(2026-08-25「続き6」参照)と
+  同型の手順で実施。
+  1. **配置・sibling依存**: `/root/easy-web.tokyo/open-cg-cad`へ
+     `git clone`。`cg-cad-core`が要求する`open-cuda`(VPS上の共有クローン
+     `/root/open-cuda`)は`easy-web.tokyo`直下へシンボリックリンクで共有。
+     `open-cpu`は既に`easy-web.tokyo`直下に実体クローンが存在していた。
+     `cg-cad-render`(ワークスペースメンバー)が要求する`open-directx`は
+     VPS上にまだ存在しなかったため新規に`git clone`した(server自体は
+     `cg-cad-render`に依存しないが、ワークスペース全体のCargo.toml解決に
+     必要)。
+  2. **ポート選定**: `ss -tlnp`で全リスニングポートを確認し、
+     `8103`/`8105`/`8106`が空いていることを確認、open-cg-cadに`8105`、
+     open-kagakuに`8106`を割り当てた(open-kagakuの詳細は
+     `open-kagaku/CLAUDE.md`参照)。
+  3. **systemdサービス新設**(`installer/open-cg-cad.service`、
+     `open-english.service`と同型): `OPEN_CG_CAD_SERVER_BIND=
+     127.0.0.1:8105`。`systemctl enable --now`で起動、`/healthz`で
+     `{"ok":true}`をVPS内部から確認。
+  4. **`domains.toml`への追記**: `open-web-server`(実際のリバース
+     プロキシ、`open-english`のHANDOFFで既出の教訓通りnginxではない)の
+     設定へ`path_prefix = "/open-cg-cad"`(`strip_prefix = true`)を
+     1件のみ追加。**`/v1`の追加専有は不要だった**——2026-08-25(続き)で
+     実施した絶対パス→相対パス化の修正が、まさにこの本番デプロイで
+     効果を発揮した具体例(修正していなければopen-englishの`/v1`
+     ルートと衝突していた)。追記前に`domains.toml`をバックアップ
+     (`domains.toml.bak-20260825-open-cg-cad-kagaku`)。
+  5. **`systemctl restart open-web-server`で反映**し、実際に外部から
+     (この開発機から直接、VPS内部からではない)`https://easy-web.tokyo/
+     open-cg-cad/`(200、タイトル確認)・`POST https://easy-web.tokyo/
+     open-cg-cad/v1/generate`(200、House 20m×15m/建ぺい率0.6/容積率2.0/
+     2階から`footprint_m2: 180.0`を正しく算出)を実際に確認した——
+     本物のインターネット経由での公開を実証。
+  6. **稼働状況**: `open-cg-cad.service`は`enabled`(再起動後も自動
+     起動)。SQLite図面DBはVPS上の実行ディレクトリに新規作成される
+     (ローカル開発機のDBとは別、正直な開示)。
+  - 次にすべきこと: 優先順位④(WebGL/WebGPU/Direct2D/Direct3D)への
+    着手(次のHANDOFFエントリ)。
+
 - **2026-08-25(続き9) open-kagakuへの導線を追加(ユーザー指示「①open-cg-cad
   から open-kagaku への導線設置」)**: `server/src/index.html`のnav部分に
   「🧪 open-kagaku(薬品シミュレーター)へ」リンクを追加(既定
