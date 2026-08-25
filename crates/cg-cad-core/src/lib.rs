@@ -41,6 +41,7 @@
 //!   バイナリがインストールされていない環境では正直にエラーを返す
 //!   設計である(`solver_bridge`モジュールのdocコメント参照)。
 
+pub mod acoustic_material;
 pub mod aero;
 pub mod airbag;
 pub mod building;
