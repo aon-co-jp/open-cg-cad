@@ -47,6 +47,34 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25(続き3) 自動車CADコンフィグ(`vehicle_config`モジュール新設)、
+  研究構想エンジン(Omega 1/ジルコニア/核融合PHEV)の扱いを
+  `AskUserQuestion`で確認**: ユーザーから「古いCAD図面から最新排ガス
+  規制対応・SUV化・2WD⇔4WD・2ドア⇔4ドア・エンジン換装、加えて
+  ピストンレス水素エンジンOmega1・ジルコニアエンジン・核融合エンジン
+  PHEVの設計」という追加要望があり、後半3種は実在しない/未実証技術
+  だったため扱いを確認した結果、「研究構想・未実証と明記したパラメータ
+  入力型CADプレースホルダー」という回答を得た。ユーザーから追加情報
+  (Omega 1は米Astron Aerospace社が実際に開発表明しているピストンレス
+  ロータリーエンジン構想)を受け、コード上のコメントも実態に合わせて
+  修正した(同社の詳細設計・知的財産は一切参照・模倣していないことを
+  明記)。`EngineType::is_experimental()`で実在技術と研究構想を区別し、
+  研究構想側は`estimate_engine_output_kw`が常に`EngineComputeResult::
+  NotImplemented(理由)`を返す(`structural::StructuralCheckResult::
+  NotImplemented`と同じ「動くふりをしない」設計)。実在技術側
+  (ガソリン/ディーゼル/HV/BEV/FCEV)は簡易出力推定+Euro6/日本ポスト
+  新長期/US Tier3の排出ガス規制簡易適合チェック(ユーザー入力の
+  実測/想定値と規制値表を比較する`zoning::ZoningRules`と同型の設計)を
+  実装。ボディスタイルは特定メーカー名を使わず一般名詞(Sedan/Suv/
+  SportCoupe等)のみ収録。`cargo test --workspace --release`
+  **118件全green**(既存108件+新規10件、regression無し)、
+  `cargo clippy --workspace --all-targets --release -- -D warnings`
+  警告0件。
+  - 次にすべきこと: `server`側APIへの配線(現状ライブラリのみ)、
+    実在エンジンの出力推定をより詳細なパラメータ(排気量/モーター定格)
+    ベースへ拡張、他の優先順位項目(鉄道車両/図面DB拡張/WebGL・WebGPU)
+    は上記「続き2」のHANDOFF参照。
+
 - **2026-08-25(続き2) 音響特性DB(`acoustic_material`モジュール新設)、
   ユーザー指示の巨大な追加要望(橋・トンネル・音響/木材DB・二階建て
   鉄道車両・自動車/バイク/航空機衝突シミュレーション・半導体図面DB拡張・
