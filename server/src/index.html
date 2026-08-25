@@ -28,6 +28,8 @@
   </div>
   <div class="nav">
     <a href="http://127.0.0.1:4601/" id="open-english-link">← open-english(英会話トレーナー)へ戻る / Back to open-english</a>
+    &nbsp;|&nbsp;
+    <a href="http://127.0.0.1:4702/" id="open-kagaku-link" target="_blank" rel="noopener">🧪 open-kagaku(薬品シミュレーター)へ / To open-kagaku</a>
   </div>
 
   <label>敷地の幅 / Site width (m)<input type="number" id="width_m" value="20" min="1" step="0.1" /></label>
@@ -97,6 +99,16 @@
   try {
     var savedBase = localStorage.getItem("open-cg-cad.openEnglishBase");
     if (savedBase) document.getElementById("open-english-link").href = savedBase;
+  } catch (e) { /* localStorage不可でもリンクは既定値のまま機能する */ }
+})();
+
+// open-kagakuへの導線(2026-08-25追加、open-kagaku側からの相互リンクと
+// 対になる片側)。localStorage経由でURLヒントを引き継げるようにする点も
+// 上記open-englishの実装と同じパターン。
+(function () {
+  try {
+    var savedKagakuBase = localStorage.getItem("open-cg-cad.openKagakuBase");
+    if (savedKagakuBase) document.getElementById("open-kagaku-link").href = savedKagakuBase;
   } catch (e) { /* localStorage不可でもリンクは既定値のまま機能する */ }
 })();
 

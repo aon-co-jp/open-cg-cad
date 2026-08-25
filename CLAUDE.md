@@ -47,6 +47,18 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25(続き9) open-kagakuへの導線を追加(ユーザー指示「①open-cg-cad
+  から open-kagaku への導線設置」)**: `server/src/index.html`のnav部分に
+  「🧪 open-kagaku(薬品シミュレーター)へ」リンクを追加(既定
+  `http://127.0.0.1:4702/`、`localStorage`の`open-cg-cad.openKagakuBase`
+  で上書き可能、open-english連携と同型のパターン)。open-kagaku側にも
+  同時に相互リンク(`open-kagaku.openCgCadBase`読み込み+自分のURLを
+  `open-cg-cad.openKagakuBase`へ書き込み)を実装した(詳細は
+  `open-kagaku/CLAUDE.md`参照)。実際に両サーバーを起動し、`curl`で
+  両ページに互いへのリンク要素が実在することを確認した。
+  - 次にすべきこと: easy-web.tokyoへの実デプロイ(ユーザー指示②、
+    次のHANDOFFエントリで対応予定)、WebGL/WebGPU等(優先順位④)。
+
 - **2026-08-25(続き8) DXF(AutoCAD等主要CADアプリ互換)出力を新設
   (ユーザー指示「CADは、AUTO-CADなどのアプリなど世界中の有名なCADアプリ
   のDATAと互換性を保って」への対応)**: `manufacturing_export::
