@@ -42,4 +42,26 @@ CLAUDE.mdのHANDOFF参照)——各ソルバー自体のプラットフォーム
   手順(`git clone`+`cargo build --release`+systemdサービス化+
   `open-web-server`の`domains.toml`への`path_prefix`追加、詳細は
   `open-english/CLAUDE.md`のHANDOFF〈2026-08-25(続き6)〉参照)と
-  同型になる見込み——**今回は未実施**(次回の課題)。
+  同型——**2026-08-25に実施済み**(`https://easy-web.tokyo/open-cg-cad/`、
+  ポート8105、`installer/open-cg-cad.service`、`domains.toml`へ
+  `path_prefix = "/open-cg-cad"`のみ追加、`/v1`の追加専有は不要——
+  API呼び出しを絶対パスから相対パス化していたため。sibling依存
+  〈`open-cuda`はVPS上の共有クローンへシンボリックリンク、
+  `open-directx`はVPS上に新規clone〉含め、詳細はCLAUDE.mdの
+  HANDOFF〈2026-08-25 続き10〉参照)。SQLite図面DBはVPS上の実行
+  ディレクトリに別途新規作成される(ローカル開発機のDBとは別)。
+
+## 新規モジュールの移植性(2026-08-25追加分)
+
+- `acoustic_material`/`vehicle_config`/`rail_vehicle`はいずれも
+  `cg-cad-core`内の純粋なRustロジックで、Vulkan/グラフィックス・
+  外部プロセス依存は無いため`cg-cad-core`本体と同様プラットフォーム
+  非依存のはず(未検証)。
+- `manufacturing_export::mesh_to_dxf_r12`(DXF R12出力)も文字列生成
+  のみでプラットフォーム依存無し。
+- `server`のWebGLプレビュー(`index.html`)はブラウザ側のWebGL 1.0
+  実装に依存する(サーバー側はメッシュ座標のJSON化のみ)——主要な
+  デスクトップ/モバイルブラウザは広くWebGL 1.0に対応済みのため、
+  `cg-cad-render`のVulkan経路(`open-directx`依存)より移植性は高い
+  はずだが、実機での複数ブラウザ・複数OS横断検証は未実施
+  (Claude Browserツール〈Chromium系〉でのみ確認済み)。
