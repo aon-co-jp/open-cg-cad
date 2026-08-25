@@ -82,33 +82,31 @@ fn parse_building_type(s: &str) -> Option<BuildingType> {
 /// 面積)・`total_floor_area_m2`(延床面積)・敷地/建築面積の矩形寸法
 /// (簡易2Dプレビュー描画用)のみ——3Dメッシュそのものは含めていない
 /// (今回のスコープ外)。
+/// `generate`/`generate_dxf`共通の検証+生成ロジック(重複を避けるため抽出)。
+fn build_from_generate_request(body: &GenerateRequest) -> Result<cg_cad_core::building::Building, Box<Response>> {
+    let site = Site::rectangle(body.width_m, body.depth_m)
+        .map_err(|e| Box::new(rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("invalid site: {e}")}))))?;
+    let zoning = ZoningRules::new(body.coverage_ratio, body.floor_area_ratio)
+        .map_err(|e| Box::new(rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("invalid zoning rules: {e}")}))))?;
+    let building_type = parse_building_type(&body.building_type).ok_or_else(|| {
+        Box::new(rs_json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({"error": "building_type must be one of: house, office, theater, audio_room, cinema_complex, home_cinema_4dx_imax"}),
+        ))
+    })?;
+    generate_building(&site, &zoning, building_type, body.floors)
+        .map_err(|e| Box::new(rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("could not generate building: {e}")}))))
+}
+
 async fn generate(req: Request) -> Response {
     let body: GenerateRequest = match read_json_body(req).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
 
-    let site = match Site::rectangle(body.width_m, body.depth_m) {
-        Ok(s) => s,
-        Err(e) => return rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("invalid site: {e}")})),
-    };
-    let zoning = match ZoningRules::new(body.coverage_ratio, body.floor_area_ratio) {
-        Ok(z) => z,
-        Err(e) => return rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("invalid zoning rules: {e}")})),
-    };
-    let building_type = match parse_building_type(&body.building_type) {
-        Some(bt) => bt,
-        None => {
-            return rs_json_response(
-                StatusCode::BAD_REQUEST,
-                &serde_json::json!({"error": "building_type must be one of: house, office, theater, audio_room, cinema_complex, home_cinema_4dx_imax"}),
-            )
-        }
-    };
-
-    let building = match generate_building(&site, &zoning, building_type, body.floors) {
+    let building = match build_from_generate_request(&body) {
         Ok(b) => b,
-        Err(e) => return rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("could not generate building: {e}")})),
+        Err(resp) => return *resp,
     };
 
     // 簡易2Dプレビュー用: 建築面積(footprint_m2)を敷地と同じアスペクト比の
@@ -136,6 +134,27 @@ async fn generate(req: Request) -> Response {
             "disclosure_ja": "これは意匠検討の叩き台(矩形footprintによる近似)であり、建築確認申請に使える設計図面ではありません。実際のプロジェクトには有資格者(一級建築士等)のレビューが必須です。",
         }),
     )
+}
+
+/// 生成した建築物ボリュームをDXF(R12、AutoCAD等の主要CADアプリが読める
+/// 公開フォーマット)としてエクスポートする(ユーザー指示「CADは、
+/// AUTO-CADなどのアプリなど世界中の有名なCADアプリのDATAと互換性を
+/// 保って」への対応、2026-08-25新設)。**正直な開示**: DWG(AutoCADの
+/// 非公開バイナリ形式)には対応しない——`manufacturing_export::
+/// mesh_to_dxf_r12`のdocコメント参照。
+async fn generate_dxf(req: Request) -> Response {
+    let body: GenerateRequest = match read_json_body(req).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let building = match build_from_generate_request(&body) {
+        Ok(b) => b,
+        Err(resp) => return *resp,
+    };
+    match cg_cad_core::manufacturing_export::mesh_to_dxf_r12(&building.mesh) {
+        Ok(dxf) => rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true, "dxf": dxf})),
+        Err(e) => rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("dxf export failed: {e}")})),
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -344,6 +363,7 @@ async fn main() {
         .at("/", get(handler_fn(move |_req, _p| async move { index().await })))
         .at("/healthz", get(handler_fn(move |_req, _p| async move { healthz().await })))
         .at("/v1/generate", post(handler_fn(move |req, _p| async move { generate(req).await })))
+        .at("/v1/generate/dxf", post(handler_fn(move |req, _p| async move { generate_dxf(req).await })))
         .at("/v1/drawings/upload", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_upload); async move { upload_drawing(req, db).await } })))
         .at("/v1/drawings", get(handler_fn(move |_req, _p| { let db = Arc::clone(&db_list); async move { list_drawings(db).await } })))
         .at("/v1/drawings/get", get(handler_fn(move |req, _p| { let db = Arc::clone(&db_get); async move { get_drawing(req, db).await } })))

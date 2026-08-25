@@ -46,6 +46,7 @@
   </label>
   <label>階数 / Floors<input type="number" id="floors" value="2" min="1" step="1" /></label>
   <button type="button" id="generate-btn">🚀 建築シミュレーション開始 / START</button>
+  <button type="button" id="export-dxf-btn">📐 DXF書き出し(AutoCAD等対応) / Export DXF</button>
 
   <svg id="preview" viewBox="0 0 300 240" width="300" height="240"></svg>
   <div id="result"></div>
@@ -112,11 +113,8 @@ function apiUrl(path) {
   return API_BASE + path.replace(/^\//, "");
 }
 
-async function generate() {
-  const resultEl = document.getElementById("result");
-  const svg = document.getElementById("preview");
-  resultEl.textContent = "生成中... / Generating...";
-  const body = {
+function currentGenerateRequestBody() {
+  return {
     width_m: Number(document.getElementById("width_m").value),
     depth_m: Number(document.getElementById("depth_m").value),
     coverage_ratio: Number(document.getElementById("coverage_ratio").value),
@@ -124,6 +122,13 @@ async function generate() {
     building_type: document.getElementById("building_type").value,
     floors: Number(document.getElementById("floors").value),
   };
+}
+
+async function generate() {
+  const resultEl = document.getElementById("result");
+  const svg = document.getElementById("preview");
+  resultEl.textContent = "生成中... / Generating...";
+  const body = currentGenerateRequestBody();
   try {
     const res = await fetch(apiUrl("v1/generate"), {
       method: "POST",
@@ -166,6 +171,41 @@ async function generate() {
 }
 
 document.getElementById("generate-btn").addEventListener("click", generate);
+
+// DXF書き出し(2026-08-25追加、ユーザー指示「CADは、AUTO-CADなどの
+// アプリなど世界中の有名なCADアプリのDATAと互換性を保って」への対応)。
+// **正直な開示**: DWG(AutoCADの非公開バイナリ形式)は非対応。DXFは
+// Autodesk自身が公開しているオープンな交換フォーマットで、AutoCAD・
+// FreeCAD・LibreCAD・SolidWorks・Fusion 360等の主要CADアプリが読み込める
+// (`server/src/manufacturing_export.rs`の`mesh_to_dxf_r12`docコメント参照)。
+async function exportDxf() {
+  const resultEl = document.getElementById("result");
+  try {
+    const res = await fetch(apiUrl("v1/generate/dxf"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(currentGenerateRequestBody()),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      resultEl.textContent = "DXFエラー / DXF error: " + (data.error || "unknown");
+      return;
+    }
+    const blob = new Blob([data.dxf], { type: "application/dxf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "open-cg-cad-building.dxf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    resultEl.textContent = "サーバーへ接続できませんでした / Could not reach server: " + e.message;
+  }
+}
+
+document.getElementById("export-dxf-btn").addEventListener("click", exportDxf);
 
 // ----------------------------------------------------------------------------
 // 図面のアップロード・一覧・AI解説(2026-08-25新設)。

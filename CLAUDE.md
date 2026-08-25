@@ -47,6 +47,37 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25(続き8) DXF(AutoCAD等主要CADアプリ互換)出力を新設
+  (ユーザー指示「CADは、AUTO-CADなどのアプリなど世界中の有名なCADアプリ
+  のDATAと互換性を保って」への対応)**: `manufacturing_export::
+  mesh_to_dxf_r12`(DXF R12、ASCII、`3DFACE`エンティティのみ)を新設し、
+  `server`に`POST /v1/generate/dxf`エンドポイント+フロントエンドの
+  「📐 DXF書き出し」ボタンを追加。**正直な開示(最重要)**: AutoCADの
+  ネイティブ形式DWGは非公開バイナリ形式のため一切対応しない(リバース
+  エンジニアリングの知的財産リスクを避ける、他モジュールと同じ方針)。
+  DXFはAutodesk自身が公開しているオープンな交換フォーマットであり、
+  AutoCAD本体はもちろんFreeCAD/LibreCAD/SolidWorks/Fusion 360/
+  SketchUp/Revit等、世界的に広く使われるCADアプリのほぼ全てが読み込める
+  ——「世界中の有名なCADアプリとの互換性」はこの公開仕様経由で実現する
+  設計とした。三角形は`3DFACE`の4頂点表現(4点目=3点目)というDXFの
+  標準的な慣習に従う。**実装中に発見・修正した実バグ**: `clippy`の
+  `result_large_err`lintが、共通化した`build_from_generate_request`の
+  戻り値`Result<Building, Response>`の`Response`型が大きすぎることを
+  検出したため、`Result<Building, Box<Response>>`へ変更し呼び出し側で
+  デリファレンスするよう修正(型チェックのみで完了と報告せず、実際に
+  `cargo clippy -D warnings`を実行して発見した具体例)。検証: (a) 単体
+  テスト5件(空メッシュ拒否・構造トークン・面数一致・範囲外インデックス・
+  座標の正しさ)、(b) 実際にサーバーを起動し`curl`で`POST /v1/generate/
+  dxf`を叩き、Houseの直方体(12三角形)から正確に12個の`3DFACE`+
+  正しいDXFトレーラー(`ENDSEC`/`EOF`)を含むDXFが返ることを確認。
+  `cargo test --workspace --release`**130件全green**(既存125件+
+  新規5件、regression無し)、`cargo clippy --workspace --all-targets
+  --release -- -D warnings`警告0件(上記バグ修正後)。
+  - 次にすべきこと: 優先順位4番目(WebGL/WebGPU/Direct2D/Direct3D)は
+    上記「続き2」参照。他のCADエンティティ(LINE/POLYLINE/レイヤー分け
+    等)への拡張、より高機能なDXFバージョン(R2000以降のAcDb系)対応は
+    未着手(現状は最も基本的なR12互換のみ)。
+
 - **2026-08-25(続き7) IMAX/4DXを映画館用(`CinemaComplex`)とHOME用
   (`HomeCinema4dxImax`)の二種類に分離**: ユーザー指示「IMAX/4DXは
   映画館用とHOME(一戸建て)用の二種類を用意して」への対応。

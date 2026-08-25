@@ -76,6 +76,55 @@ pub fn mesh_to_stl_ascii(mesh: &Mesh, solid_name: &str) -> Result<String, Manufa
     Ok(out)
 }
 
+/// メッシュをDXF R12(ASCII)フォーマットの文字列へ変換する。
+///
+/// ユーザー指示「CADは、AUTO-CADなどのアプリなど世界中の有名なCADアプリの
+/// DATAと互換性を保って」への対応。**正直な開示(最重要)**:
+/// AutoCADのネイティブ形式である**DWGは非公開のバイナリ形式**であり、
+/// リバースエンジニアリングによる互換実装は知的財産上のリスクがあるため
+/// 本モジュールでは一切対応しない(他モジュールで一貫している「特定
+/// 企業の非公開仕様を模倣しない」方針を踏襲)。一方**DXFはAutodesk自身が
+/// 公開しているオープンな交換フォーマット仕様**であり、AutoCAD本体は
+/// もちろん、FreeCAD・LibreCAD・SolidWorks・Fusion 360・SketchUp・Revit
+/// 等、世界的に広く使われるCADアプリのほぼ全てがDXFの読み込みに対応して
+/// いる——「世界中の有名なCADアプリとの互換性」は、公開仕様である
+/// DXF経由で実現する設計とした。
+///
+/// 出力する`ENTITIES`セクションは`3DFACE`エンティティのみ(最も基本的な
+/// 三角形/四角形ポリゴン表現)。三角形は4点目を3点目と同じ座標にする
+/// DXFの標準的な慣習(3DFACEは本来4頂点)に従う。頂点色・レイヤー分け・
+/// ブロック定義・寸法線等の高度な機能は一切出力しない(MVPスコープ)。
+pub fn mesh_to_dxf_r12(mesh: &Mesh) -> Result<String, ManufacturingExportError> {
+    if mesh.indices.is_empty() || !mesh.indices.len().is_multiple_of(3) {
+        return Err(ManufacturingExportError::EmptyMesh);
+    }
+
+    let mut out = String::new();
+    let _ = writeln!(out, "0\nSECTION\n2\nENTITIES");
+
+    for tri in mesh.indices.chunks(3) {
+        let (i0, i1, i2) = (tri[0], tri[1], tri[2]);
+        for &i in &[i0, i1, i2] {
+            if i as usize >= mesh.vertices.len() {
+                return Err(ManufacturingExportError::IndexOutOfBounds(i, mesh.vertices.len()));
+            }
+        }
+        let p0 = mesh.vertices[i0 as usize].position;
+        let p1 = mesh.vertices[i1 as usize].position;
+        let p2 = mesh.vertices[i2 as usize].position;
+
+        let _ = writeln!(out, "0\n3DFACE\n8\n0");
+        let _ = writeln!(out, "10\n{}\n20\n{}\n30\n{}", p0[0], p0[1], p0[2]);
+        let _ = writeln!(out, "11\n{}\n21\n{}\n31\n{}", p1[0], p1[1], p1[2]);
+        let _ = writeln!(out, "12\n{}\n22\n{}\n32\n{}", p2[0], p2[1], p2[2]);
+        // 4点目=3点目(三角形をDXFの4頂点3DFACEとして表現する標準的な慣習)。
+        let _ = writeln!(out, "13\n{}\n23\n{}\n33\n{}", p2[0], p2[1], p2[2]);
+    }
+
+    let _ = writeln!(out, "0\nENDSEC\n0\nEOF");
+    Ok(out)
+}
+
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
@@ -199,6 +248,48 @@ mod tests {
             matches!(err, ManufacturingExportError::IndexOutOfBounds(0, 0)),
             "expected IndexOutOfBounds(0, 0), got {err:?}"
         );
+    }
+
+    #[test]
+    fn rejects_empty_mesh_for_dxf() {
+        let mesh = Mesh::new();
+        assert_eq!(mesh_to_dxf_r12(&mesh).unwrap_err(), ManufacturingExportError::EmptyMesh);
+    }
+
+    #[test]
+    fn dxf_has_correct_structural_tokens() {
+        let mesh = single_triangle_mesh();
+        let dxf = mesh_to_dxf_r12(&mesh).unwrap();
+        assert!(dxf.starts_with("0\nSECTION\n2\nENTITIES\n"));
+        assert!(dxf.trim_end().ends_with("0\nENDSEC\n0\nEOF"));
+        assert_eq!(dxf.matches("3DFACE").count(), 1);
+    }
+
+    #[test]
+    fn dxf_face_count_matches_triangle_count() {
+        let mut mesh = single_triangle_mesh();
+        let box_mesh = Mesh::axis_aligned_box([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0]);
+        mesh.merge(&box_mesh);
+        let dxf = mesh_to_dxf_r12(&mesh).unwrap();
+        let expected_faces = mesh.indices.len() / 3;
+        assert_eq!(dxf.matches("3DFACE").count(), expected_faces);
+    }
+
+    #[test]
+    fn dxf_detects_out_of_bounds_index() {
+        let mesh = Mesh { vertices: vec![], indices: vec![0, 1, 2] };
+        let err = mesh_to_dxf_r12(&mesh).unwrap_err();
+        assert!(matches!(err, ManufacturingExportError::IndexOutOfBounds(0, 0)), "expected IndexOutOfBounds(0, 0), got {err:?}");
+    }
+
+    #[test]
+    fn dxf_contains_all_three_vertex_coordinates_of_a_triangle() {
+        let mesh = single_triangle_mesh(); // vertices at (0,0,0), (1,0,0), (0,1,0)
+        let dxf = mesh_to_dxf_r12(&mesh).unwrap();
+        assert!(dxf.contains("10\n0\n20\n0\n30\n0")); // p0
+        assert!(dxf.contains("11\n1\n21\n0\n31\n0")); // p1
+        assert!(dxf.contains("12\n0\n22\n1\n32\n0")); // p2
+        assert!(dxf.contains("13\n0\n23\n1\n33\n0")); // 4th point == 3rd point
     }
 
     #[test]
