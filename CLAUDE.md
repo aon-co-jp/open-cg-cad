@@ -47,6 +47,26 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25(続き7) IMAX/4DXを映画館用(`CinemaComplex`)とHOME用
+  (`HomeCinema4dxImax`)の二種類に分離**: ユーザー指示「IMAX/4DXは
+  映画館用とHOME(一戸建て)用の二種類を用意して」への対応。
+  `BuildingType::HomeCinema4dxImax`を新設し、階高を`House`(3.0m)に近い
+  3.6m(天井裏配線・スクリーン設置の余裕分のみ上乗せ)とし、商業施設
+  スケールの`CinemaComplex`(5.5m)と明確に区別した。`material.rs`に
+  専用の色(住宅版は紫がかった色、商業版の濃紺とは別)、`server`側の
+  `parse_building_type`(`"home_cinema_4dx_imax"`)・フロントエンドの
+  建物種別セレクトにも追加。**正直な開示**: 実際の4DX(座席可動)・IMAX
+  (大型スクリーン)機材を住宅規模でどこまで再現できるかは対象外、
+  設置スペースを表す直方体ドラフトに留まる。検証: (a) 単体テストで
+  同じ階数でも住宅版が商業版より明確に低いこと(4.0m未満)を確認、
+  (b) 実際にサーバーを起動し`POST /v1/generate`へ`cinema_complex`と
+  `home_cinema_4dx_imax`の両方を投げて200 OKで異なる建物種別として
+  受理されることを`curl`で確認。`cargo test --workspace --release`
+  **125件全green**(既存124件+新規1件、regression無し)、`cargo clippy`
+  警告0件。
+  - 次にすべきこと: 優先順位4番目(WebGL/WebGPU/Direct2D/Direct3D)は
+    上記「続き2」参照。
+
 - **2026-08-25(続き6) 図面DBカテゴリ拡張+ダウンロード機能(PDF対応、
   優先順位3番目に着手)**: `server/src/index.html`のカテゴリ選択肢へ
   橋/トンネル/CPU・NPU・GPU/航空機・ジャンボジェット/鉄道車両を追加。

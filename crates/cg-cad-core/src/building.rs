@@ -25,8 +25,18 @@ pub enum BuildingType {
     Theater,
     /// オーディオルーム付き住宅・小規模施設(遮音重視、低層)。
     AudioRoom,
-    /// 4DX/IMAX対応シアタールーム付きビル(複合施設、中層)。
+    /// 4DX/IMAX対応シアタールーム付きビル(劇場・商業施設スケールの
+    /// 複合施設、中層)。
     CinemaComplex,
+    /// 4DX/IMAX対応ホームシアタールーム付き一戸建て住宅(ユーザー指示
+    /// 「IMAX/4DXは映画館用とHOME(一戸建て)用の二種類を用意して」への
+    /// 対応、2026-08-25追加)。**正直な開示**: `CinemaComplex`
+    /// (商業施設スケール)とは規模が全く異なり、あくまで住宅内の
+    /// 一室として設置する想定の低層(`House`に近い階高)。実際の4DX
+    /// (座席の動き・環境演出)・IMAX(大型スクリーン・高解像度映写)の
+    /// 機材を住宅規模でどこまで再現できるかは本モジュールのスコープ外
+    /// (設置スペースの確保のみを表現する直方体ドラフト)。
+    HomeCinema4dxImax,
 }
 
 impl BuildingType {
@@ -41,6 +51,11 @@ impl BuildingType {
             BuildingType::Theater => 6.0,        // 大空間のため階高を大きく
             BuildingType::AudioRoom => 3.2,
             BuildingType::CinemaComplex => 5.5,
+            // 一戸建て住宅内の一室として設置する想定のため、Houseの階高
+            // (3.0m)に、天井裏配線・スクリーン/プロジェクター設置分の
+            // 余裕を見込んだ差分を加えた参考値(商業施設スケールの
+            // CinemaComplexとは明確に区別する)。
+            BuildingType::HomeCinema4dxImax => 3.6,
         }
     }
 }
@@ -165,5 +180,21 @@ mod tests {
         let house_height = house.mesh.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
         let theater_height = theater.mesh.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
         assert!(theater_height > house_height);
+    }
+
+    #[test]
+    fn home_cinema_is_much_shorter_than_commercial_cinema_complex_for_the_same_floor_count() {
+        // ユーザー指示「IMAX/4DXは映画館用とHOME用の二種類を用意して」の
+        // 検証: 商業施設スケール(CinemaComplex)と住宅スケール
+        // (HomeCinema4dxImax)は明確に高さが異なるべき。
+        let site = Site::rectangle(20.0, 20.0).unwrap();
+        let zoning = ZoningRules::new(0.5, 10.0).unwrap();
+        let theater_scale = generate_building(&site, &zoning, BuildingType::CinemaComplex, 1).unwrap();
+        let home_scale = generate_building(&site, &zoning, BuildingType::HomeCinema4dxImax, 1).unwrap();
+        let theater_height = theater_scale.mesh.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
+        let home_height = home_scale.mesh.vertices.iter().map(|v| v.position[1]).fold(0.0f32, f32::max);
+        assert!(home_height < theater_height);
+        // 住宅スケールはHouse(3.0m)に近い水準であるべき(商業施設の階高5.5mとは別物)。
+        assert!(home_height < 4.0);
     }
 }

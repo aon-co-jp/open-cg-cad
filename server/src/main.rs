@@ -72,6 +72,7 @@ fn parse_building_type(s: &str) -> Option<BuildingType> {
         "theater" => Some(BuildingType::Theater),
         "audio_room" => Some(BuildingType::AudioRoom),
         "cinema_complex" => Some(BuildingType::CinemaComplex),
+        "home_cinema_4dx_imax" => Some(BuildingType::HomeCinema4dxImax),
         _ => None,
     }
 }
@@ -100,7 +101,7 @@ async fn generate(req: Request) -> Response {
         None => {
             return rs_json_response(
                 StatusCode::BAD_REQUEST,
-                &serde_json::json!({"error": "building_type must be one of: house, office, theater, audio_room, cinema_complex"}),
+                &serde_json::json!({"error": "building_type must be one of: house, office, theater, audio_room, cinema_complex, home_cinema_4dx_imax"}),
             )
         }
     };

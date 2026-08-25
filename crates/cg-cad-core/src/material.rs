@@ -18,6 +18,7 @@ pub fn default_color_for(building_type: BuildingType) -> Color {
         BuildingType::Theater => [0.35, 0.15, 0.20, 1.0], // 劇場/コンサートホール風の濃い臙脂色
         BuildingType::AudioRoom => [0.20, 0.20, 0.25, 1.0], // 遮音重視の濃いグレー
         BuildingType::CinemaComplex => [0.10, 0.10, 0.30, 1.0], // 4DX/IMAX対応ビル風の濃紺
+        BuildingType::HomeCinema4dxImax => [0.30, 0.10, 0.35, 1.0], // 住宅版4DX/IMAX(House寄りだが遮光重視の紫がかった色)
     }
 }
 
@@ -33,6 +34,7 @@ mod tests {
             BuildingType::Theater,
             BuildingType::AudioRoom,
             BuildingType::CinemaComplex,
+            BuildingType::HomeCinema4dxImax,
         ];
         let colors: Vec<Color> = types.iter().map(|&t| default_color_for(t)).collect();
         for i in 0..colors.len() {
@@ -50,6 +52,7 @@ mod tests {
             BuildingType::Theater,
             BuildingType::AudioRoom,
             BuildingType::CinemaComplex,
+            BuildingType::HomeCinema4dxImax,
         ] {
             let c = default_color_for(t);
             for channel in c {
