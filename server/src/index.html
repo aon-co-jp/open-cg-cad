@@ -93,6 +93,19 @@
   } catch (e) { /* localStorage不可でもリンクは既定値のまま機能する */ }
 })();
 
+// APIの呼び出しは絶対パス("/v1/...")ではなく現在のページ位置からの
+// 相対パスで組み立てる(2026-08-25追記)。easy-web.tokyoへのVPSデプロイでは
+// "/open-cg-cad/"というpath_prefix配下で配信される想定であり、絶対パスの
+// "/v1/..."だとドメイン直下へ飛んでしまい、同ドメインで既に"/v1"を
+// 専有しているopen-english側のAPIと衝突する(open-english/CLAUDE.mdの
+// HANDOFFに記載済みの既知リスク)。相対パスにすることでこの衝突を
+// 構造的に回避する(ローカル開発時の"http://127.0.0.1:4701/"でも
+// pathnameが"/"なのでそのまま"/v1/..."となり従来通り動作する)。
+const API_BASE = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
+function apiUrl(path) {
+  return API_BASE + path.replace(/^\//, "");
+}
+
 async function generate() {
   const resultEl = document.getElementById("result");
   const svg = document.getElementById("preview");
@@ -106,7 +119,7 @@ async function generate() {
     floors: Number(document.getElementById("floors").value),
   };
   try {
-    const res = await fetch("/v1/generate", {
+    const res = await fetch(apiUrl("v1/generate"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -168,7 +181,7 @@ function fileToBase64(file) {
 
 async function uploadOneFile(file, category, description) {
   const data_base64 = await fileToBase64(file);
-  const res = await fetch("/v1/drawings/upload", {
+  const res = await fetch(apiUrl("v1/drawings/upload"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ filename: file.name, category, description, data_base64 }),
@@ -209,7 +222,7 @@ async function uploadDrawings() {
 async function analyzeDrawing(id, containerEl) {
   containerEl.textContent = "解析中... / Analyzing...";
   try {
-    const res = await fetch("/v1/drawings/analyze", {
+    const res = await fetch(apiUrl("v1/drawings/analyze"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id }),
@@ -225,7 +238,7 @@ async function loadDrawings() {
   const listEl = document.getElementById("drawings-list");
   listEl.textContent = "読み込み中... / Loading...";
   try {
-    const res = await fetch("/v1/drawings");
+    const res = await fetch(apiUrl("v1/drawings"));
     const data = await res.json();
     if (!data.ok || data.drawings.length === 0) {
       listEl.textContent = "保存済みの図面はまだありません。 / No drawings saved yet.";

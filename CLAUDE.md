@@ -47,6 +47,34 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25(続き) `server/src/index.html`のAPI呼び出しを絶対パス
+  (`/v1/...`)から相対パス(`apiUrl()`ヘルパー、現在の`location.pathname`
+  基準)へ修正(easy-web.tokyoへの実デプロイ準備中に発見したバグ)**:
+  `open-english`のVPSデプロイ記録(`open-english/CLAUDE.md`
+  2026-08-25「続き6」)を確認したところ、`easy-web.tokyo`ドメイン直下の
+  `/v1`パス名前空間は既に`open-english`が`domains.toml`で専有済み
+  (`path_prefix = "/v1"`, `backend_addr = "127.0.0.1:8104"`)と判明した。
+  `open-cg-cad`の`index.html`も同じく`fetch("/v1/generate")`等の絶対
+  パスで書かれていたため、このまま`/open-cg-cad`という別のpath_prefixで
+  デプロイすると、`/v1/...`宛のリクエストが誤って`open-english`側の
+  バックエンドへ転送されてしまう実バグを、実際にVPSへデプロイする前に
+  発見した。`API_BASE = location.pathname`(末尾スラッシュ補正)+
+  `apiUrl(path)`ヘルパーを導入し、4箇所の`fetch`呼び出しを全て相対パス化
+  して解消——`/open-cg-cad/`という自分のpath_prefix配下に自然に留まる
+  ため、`/v1`の追加専有(open-englishと同様の対応)が不要になった。
+  **実機検証**: `cargo build --workspace --release`成功、
+  `cargo test --workspace --release`106件全green(既存分含む、
+  regression無し)、`cargo clippy --workspace --all-targets --release --
+  -D warnings`警告0件(既存の`open-runo-router`側warningのみ)。
+  加えてローカルで実際にサーバーを起動し、実ブラウザ(Claude Browser
+  ツール)で(a) STARTボタン押下→`v1/generate`が正しく呼ばれ建築面積
+  180.0m²等が表示されること、(b) 保存済み図面一覧(`v1/drawings`)が
+  正しく読み込まれ既存2件が表示されることを確認した(ルートパス
+  `/`配信時は従来と完全に同じ挙動になることも確認済み、regression無し)。
+  - 次にすべきこと: easy-web.tokyoへ実際にデプロイ(下記2番目のHANDOFF
+    エントリの計画通り、`path_prefix = "/open-cg-cad"`のみで`/v1`の
+    追加専有は不要という設計変更を反映すること)。
+
 - **2026-08-25 `server`クレート新設(HTTP API+簡易プレビュー+図面DB)、
   open-englishとの連携第一歩(ユーザー指示「open-englishとopen-cg-cadが
   ハイブリッドに相互作用して機能させて、open-englishとeasy-web.tokyoから
