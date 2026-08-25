@@ -83,6 +83,27 @@ fn parse_building_type(s: &str) -> Option<BuildingType> {
 /// (簡易2Dプレビュー描画用)のみ——3Dメッシュそのものは含めていない
 /// (今回のスコープ外)。
 /// `generate`/`generate_dxf`共通の検証+生成ロジック(重複を避けるため抽出)。
+/// メッシュをブラウザのWebGLで直接描画できるようフラットな配列(頂点位置
+/// ×3、頂点色RGBA×4、インデックス)へ変換する(優先順位4番目
+/// 「WebGL/WebGPU対応」への第一歩、2026-08-25新設)。**正直な開示**:
+/// (1) `cg-cad-render`(Vulkanネイティブパイプライン、`open-directx`
+/// 経由)とは別の独立した経路——サーバー側でメッシュ生成のみ行い、
+/// 実際のラスタライズはブラウザのWebGL(クライアント側)が行う設計。
+/// (2) WebGPUは本バージョンでは未実装(ブラウザのWebGPU対応状況に
+/// まだばらつきがあるため、まずより広くサポートされているWebGLを優先
+/// した、次回以降の課題)。(3) Direct2D/Direct3DはWindowsネイティブAPIで
+/// あり、Webブラウザ経由のこのサーバーの配布形態とは適合しない
+/// (ネイティブGPU描画は既存の`cg-cad-render`のVulkan経路が担う)。
+fn mesh_to_json(mesh: &cg_cad_core::mesh::Mesh) -> serde_json::Value {
+    let mut positions = Vec::with_capacity(mesh.vertices.len() * 3);
+    let mut colors = Vec::with_capacity(mesh.vertices.len() * 4);
+    for v in &mesh.vertices {
+        positions.extend_from_slice(&v.position);
+        colors.extend_from_slice(&v.color);
+    }
+    serde_json::json!({ "positions": positions, "colors": colors, "indices": mesh.indices })
+}
+
 fn build_from_generate_request(body: &GenerateRequest) -> Result<cg_cad_core::building::Building, Box<Response>> {
     let site = Site::rectangle(body.width_m, body.depth_m)
         .map_err(|e| Box::new(rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("invalid site: {e}")}))))?;
@@ -130,6 +151,7 @@ async fn generate(req: Request) -> Response {
             "site_depth_m": body.depth_m,
             "footprint_width_m": footprint_width_m,
             "footprint_depth_m": footprint_depth_m,
+            "mesh": mesh_to_json(&building.mesh),
             "disclosure_en": "This is a draft massing/volume estimate only (rectangular footprint approximation), not a permit-ready design. A licensed architect must review any real project.",
             "disclosure_ja": "これは意匠検討の叩き台(矩形footprintによる近似)であり、建築確認申請に使える設計図面ではありません。実際のプロジェクトには有資格者(一級建築士等)のレビューが必須です。",
         }),

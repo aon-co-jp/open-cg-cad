@@ -51,6 +51,8 @@
   <button type="button" id="export-dxf-btn">📐 DXF書き出し(AutoCAD等対応) / Export DXF</button>
 
   <svg id="preview" viewBox="0 0 300 240" width="300" height="240"></svg>
+  <canvas id="webgl-preview" width="300" height="240" style="background:#0f0a12; border-radius:8px; margin-top:10px; display:none;"></canvas>
+  <div id="webgl-status" style="font-size:0.8rem; margin-top:4px;"></div>
   <div id="result"></div>
 
   <hr style="margin: 20px 0; border-color: #5a3a5a;" />
@@ -136,6 +138,178 @@ function currentGenerateRequestBody() {
   };
 }
 
+// WebGL 3Dプレビュー(優先順位4番目「WebGL/WebGPU対応」への第一歩、
+// 2026-08-25追加)。**正直な開示**: `cg-cad-render`(Vulkanネイティブ
+// パイプライン、`open-directx`経由)とは独立した別経路——サーバーは
+// メッシュ座標のJSONを返すだけで、実際のラスタライズはここ(ブラウザの
+// WebGL)が行う。WebGPUは本バージョンでは未実装(ブラウザ対応状況の
+// ばらつきを踏まえ、まず広くサポートされているWebGL 1.0を優先した)。
+// ライブラリを一切使わない素のWebGLで、平行光源による簡易シェーディング
+// のみ(法線はメッシュから面ごとに算出)。
+let glState = null;
+
+function initWebGl(canvas) {
+  const gl = canvas.getContext("webgl");
+  if (!gl) return null;
+  const vsSource = `
+    attribute vec3 aPosition;
+    attribute vec3 aNormal;
+    attribute vec4 aColor;
+    uniform mat4 uMvp;
+    varying vec3 vNormal;
+    varying vec4 vColor;
+    void main() {
+      gl_Position = uMvp * vec4(aPosition, 1.0);
+      vNormal = aNormal;
+      vColor = aColor;
+    }`;
+  const fsSource = `
+    precision mediump float;
+    varying vec3 vNormal;
+    varying vec4 vColor;
+    void main() {
+      vec3 lightDir = normalize(vec3(0.4, 0.8, 0.6));
+      float diff = max(dot(normalize(vNormal), lightDir), 0.25);
+      gl_FragColor = vec4(vColor.rgb * diff, vColor.a);
+    }`;
+  function compile(type, src) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, src);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(shader));
+      return null;
+    }
+    return shader;
+  }
+  const vs = compile(gl.VERTEX_SHADER, vsSource);
+  const fs = compile(gl.FRAGMENT_SHADER, fsSource);
+  if (!vs || !fs) return null;
+  const program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(program));
+    return null;
+  }
+  gl.enable(gl.DEPTH_TEST);
+  return { gl, program };
+}
+
+// フラットシェーディング用に、三角形ごとの面法線を各頂点へ複製する
+// (共有頂点のままだとスムースシェーディングになってしまうため)。
+function buildFlatNormals(positions, indices) {
+  const normals = new Float32Array(positions.length);
+  for (let i = 0; i < indices.length; i += 3) {
+    const ia = indices[i] * 3, ib = indices[i + 1] * 3, ic = indices[i + 2] * 3;
+    const ax = positions[ia], ay = positions[ia + 1], az = positions[ia + 2];
+    const bx = positions[ib], by = positions[ib + 1], bz = positions[ib + 2];
+    const cx = positions[ic], cy = positions[ic + 1], cz = positions[ic + 2];
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    for (const idx of [ia, ib, ic]) { normals[idx] = nx; normals[idx + 1] = ny; normals[idx + 2] = nz; }
+  }
+  return normals;
+}
+
+function multiplyMat4(a, b) {
+  const out = new Float32Array(16);
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      out[i * 4 + j] = a[i * 4 + 0] * b[0 * 4 + j] + a[i * 4 + 1] * b[1 * 4 + j] + a[i * 4 + 2] * b[2 * 4 + j] + a[i * 4 + 3] * b[3 * 4 + j];
+    }
+  }
+  return out;
+}
+
+function perspectiveMat4(fovyRad, aspect, near, far) {
+  const f = 1.0 / Math.tan(fovyRad / 2);
+  const out = new Float32Array(16);
+  out[0] = f / aspect; out[5] = f; out[11] = -1;
+  out[10] = (far + near) / (near - far);
+  out[14] = (2 * far * near) / (near - far);
+  return out;
+}
+
+function lookAtMat4(eye, center, up) {
+  function normalize(v) { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
+  function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+  const zAxis = normalize([eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]]);
+  const xAxis = normalize(cross(up, zAxis));
+  const yAxis = cross(zAxis, xAxis);
+  return new Float32Array([
+    xAxis[0], yAxis[0], zAxis[0], 0,
+    xAxis[1], yAxis[1], zAxis[1], 0,
+    xAxis[2], yAxis[2], zAxis[2], 0,
+    -(xAxis[0] * eye[0] + xAxis[1] * eye[1] + xAxis[2] * eye[2]),
+    -(yAxis[0] * eye[0] + yAxis[1] * eye[1] + yAxis[2] * eye[2]),
+    -(zAxis[0] * eye[0] + zAxis[1] * eye[1] + zAxis[2] * eye[2]),
+    1,
+  ]);
+}
+
+function renderMeshWebGl(mesh) {
+  const canvas = document.getElementById("webgl-preview");
+  const statusEl = document.getElementById("webgl-status");
+  if (!glState) glState = initWebGl(canvas);
+  if (!glState) {
+    canvas.style.display = "none";
+    statusEl.textContent = "このブラウザはWebGLに対応していません / WebGL is not supported in this browser.";
+    return;
+  }
+  canvas.style.display = "block";
+  statusEl.textContent = "🖥 WebGLで描画中 / Rendering with WebGL";
+  const { gl, program } = glState;
+  const positions = new Float32Array(mesh.positions);
+  const colors = new Float32Array(mesh.colors);
+  const indices = new Uint16Array(mesh.indices);
+  const normals = buildFlatNormals(positions, mesh.indices);
+
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0.06, 0.04, 0.07, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(program);
+
+  function bindAttrib(name, data, size) {
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(program, name);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  }
+  bindAttrib("aPosition", positions, 3);
+  bindAttrib("aNormal", normals, 3);
+  bindAttrib("aColor", colors, 4);
+
+  const indexBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuf);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+  // メッシュのbounding boxの中心・対角長からカメラを自動配置(建物の
+  // 大きさによらず画角内に収まるようにする簡易フィッティング)。
+  let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let i = 0; i < positions.length; i += 3) {
+    minX = Math.min(minX, positions[i]); maxX = Math.max(maxX, positions[i]);
+    minY = Math.min(minY, positions[i + 1]); maxY = Math.max(maxY, positions[i + 1]);
+    minZ = Math.min(minZ, positions[i + 2]); maxZ = Math.max(maxZ, positions[i + 2]);
+  }
+  const center = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+  const diag = Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) || 1;
+  const eye = [center[0] + diag * 0.9, center[1] + diag * 0.7, center[2] + diag * 0.9];
+
+  const view = lookAtMat4(eye, center, [0, 1, 0]);
+  const proj = perspectiveMat4(Math.PI / 4, canvas.width / canvas.height, 0.1, diag * 10);
+  const mvp = multiplyMat4(view, proj);
+  gl.uniformMatrix4fv(gl.getUniformLocation(program, "uMvp"), false, mvp);
+
+  gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+}
+
 async function generate() {
   const resultEl = document.getElementById("result");
   const svg = document.getElementById("preview");
@@ -176,6 +350,8 @@ async function generate() {
       '<rect x="' + fpX + '" y="' + fpY + '" width="' + fpW + '" height="' + fpD + '" fill="#d9a44166" stroke="#d9a441" stroke-width="2" />' +
       '<text x="' + siteX + '" y="' + (siteY + siteD + 14) + '" fill="#8ee6a1" font-size="11">敷地 / Site</text>' +
       '<text x="' + fpX + '" y="' + (fpY - 4 > 10 ? fpY - 4 : fpY + 14) + '" fill="#d9a441" font-size="11">建築面積 / Footprint</text>';
+
+    if (data.mesh) renderMeshWebGl(data.mesh);
   } catch (e) {
     resultEl.textContent = "サーバーへ接続できませんでした / Could not reach server: " + e.message;
     svg.innerHTML = "";

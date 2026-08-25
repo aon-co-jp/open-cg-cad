@@ -47,6 +47,35 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25(続き11) WebGL 3Dプレビューを新設(優先順位4番目、
+  ユーザー指示③への第一歩)**: `POST /v1/generate`のレスポンスに
+  メッシュ座標(`mesh.positions`/`mesh.colors`/`mesh.indices`、
+  `main.rs`の`mesh_to_json`)を追加し、`server/src/index.html`に
+  ライブラリを一切使わない素のWebGL 1.0レンダラー(`initWebGl`/
+  `renderMeshWebGl`)を実装。面ごとのフラット法線を算出し平行光源で
+  簡易シェーディング、メッシュのbounding boxから自動でカメラを
+  フィッティングする。**正直な開示**: (1) `cg-cad-render`(Vulkan
+  ネイティブパイプライン、`open-directx`経由)とは完全に独立した別経路
+  ——サーバーはメッシュ座標をJSONで返すだけで、実際のラスタライズは
+  ブラウザのWebGLが行う設計。(2) **WebGPUは本バージョンでは未実装**
+  (ブラウザのWebGPU対応状況にまだばらつきがあるため、まず広く
+  サポートされているWebGLを優先した、次回課題)。(3) **Direct2D/
+  Direct3DはWindowsネイティブAPIであり、Webブラウザ経由のこのサーバー
+  の配布形態とは適合しないため対応しない**——ネイティブGPU描画は
+  既存の`cg-cad-render`のVulkan経路が担う役割分担とした。実機検証:
+  実際にサーバーを起動し、実ブラウザ(Claude Browserツール)で
+  (a) House(1階)→ベージュ色の直方体が実際にcanvas上へレンダリング
+  されること、(b) `cinema_complex`(3階)に切り替えると濃紺色かつ
+  縦に伸びた直方体へ正しく更新されること、をスクリーンショットで
+  視覚的に確認した(単なるビルド成功ではなく実際の描画結果を確認)。
+  `cargo test --workspace --release`**130件全green**(既存件数から
+  regression無し、mesh JSON化はサーバー側ロジックのみでcg-cad-core側の
+  変更は無いためテスト数自体に変化無し)、`cargo clippy --workspace
+  --all-targets --release -- -D warnings`警告0件。
+  - 次にすべきこと: WebGPUバックエンドの追加(ブラウザ対応状況を見て
+    判断)、DXF出力と同様に他のCADエンティティ拡張、複数建物・地形の
+    同時描画(現状は単一建物のみ)。
+
 - **2026-08-25(続き10) easy-web.tokyoへ実際にデプロイして公開(ユーザー
   指示②)**: open-englishの既存デプロイ手順(2026-08-25「続き6」参照)と
   同型の手順で実施。
