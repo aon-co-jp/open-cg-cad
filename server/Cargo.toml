@@ -1,0 +1,20 @@
+[package]
+name = "open-cg-cad-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "open-cg-cadの最小HTTP API+簡易プレビュー画面。ユーザー指示(2026-08-25)『open-englishとopen-cg-cadがハイブリッドに相互作用』への対応として新設。cg-cad-coreのgenerate_buildingを呼び出し、敷地/法規制/建物種別/階数からドラフト建築物ボリュームを生成してJSON+簡易2Dプレビュー(SVG)で返す。"
+
+[dependencies]
+cg-cad-core = { path = "../crates/cg-cad-core" }
+open-runo-poem-compat = { path = "../../RPoem/crates/open-runo-poem-compat" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+http-body-util = "0.1"
+hyper = { version = "1.10", features = ["full"] }
+bytes = "1.9"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+base64 = "0.22"
+

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>open-cg-cad: AI工務店&AI建設(Phase 0)</title>
+<style>
+  body { font-family: sans-serif; background: #1a1420; color: #f5eef7; max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.3rem; }
+  .disclosure { background: #3a2a1a; border: 1px solid #d9a441; border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; line-height: 1.5; margin-bottom: 14px; }
+  .nav { margin-bottom: 14px; }
+  .nav a { color: #ffb6d9; }
+  label { display: block; margin: 8px 0 2px; font-size: 0.9rem; }
+  input, select { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid #5a3a5a; background: #241726; color: #f5eef7; box-sizing: border-box; }
+  button { margin-top: 12px; padding: 8px 16px; border-radius: 8px; border: none; background: #d9a441; color: #221a26; font-weight: bold; cursor: pointer; }
+  #result { margin-top: 14px; white-space: pre-line; font-size: 0.9rem; background: #241726; border-radius: 8px; padding: 10px 12px; }
+  svg { background: #0f0a12; border-radius: 8px; margin-top: 10px; }
+  .drawing-row { background: #241726; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 0.85rem; }
+  .drawing-row button { margin-top: 6px; margin-right: 6px; padding: 4px 10px; font-size: 0.8rem; }
+  .drawing-analysis { white-space: pre-line; margin-top: 6px; background: #1b1219; border-radius: 6px; padding: 8px; }
+</style>
+</head>
+<body>
+  <h1>🏗 open-cg-cad: AI工務店&AI建設 / AI construction &amp; contractor assist (Phase 0)</h1>
+  <div class="disclosure">
+    <strong>重要な免責事項:</strong> これは意匠検討の叩き台生成ツールであり、建築確認申請に使える正式な設計図面ではありません。日照権・耐震性・避難計画等の実シミュレーションは行っておらず、法規制パラメータは利用者が入力した値をそのまま使うだけです(自動取得はしません)。実際のプロジェクトには一級建築士・宅地建物取引士等の有資格者によるレビューが必須です。<br /><br />
+    <strong>Honest disclosure:</strong> This is a draft massing tool only, not a permit-ready design. No real sunlight-rights, seismic, or evacuation simulation is performed, and zoning parameters are used exactly as entered (no automatic lookup). A licensed architect/professional must review any real project.
+  </div>
+  <div class="nav">
+    <a href="http://127.0.0.1:4601/" id="open-english-link">← open-english(英会話トレーナー)へ戻る / Back to open-english</a>
+  </div>
+
+  <label>敷地の幅 / Site width (m)<input type="number" id="width_m" value="20" min="1" step="0.1" /></label>
+  <label>敷地の奥行き / Site depth (m)<input type="number" id="depth_m" value="15" min="1" step="0.1" /></label>
+  <label>建ぺい率 / Building coverage ratio (0-1)<input type="number" id="coverage_ratio" value="0.6" min="0" max="1" step="0.01" /></label>
+  <label>容積率 / Floor area ratio<input type="number" id="floor_area_ratio" value="2.0" min="0.01" step="0.1" /></label>
+  <label>建物種別 / Building type
+    <select id="building_type">
+      <option value="house">一戸建て住宅 / House</option>
+      <option value="office">オフィスビル / Office building</option>
+      <option value="theater">劇場・コンサートホール / Theater</option>
+      <option value="audio_room">オーディオルーム付き住宅 / Audio room</option>
+      <option value="cinema_complex">4DX/IMAX複合施設 / Cinema complex</option>
+    </select>
+  </label>
+  <label>階数 / Floors<input type="number" id="floors" value="2" min="1" step="1" /></label>
+  <button type="button" id="generate-btn">🚀 建築シミュレーション開始 / START</button>
+
+  <svg id="preview" viewBox="0 0 300 240" width="300" height="240"></svg>
+  <div id="result"></div>
+
+  <hr style="margin: 20px 0; border-color: #5a3a5a;" />
+
+  <h2 style="font-size: 1.05rem;">📤 図面のアップロード+AI解説(試作) / Upload your own drawings + AI explanation (prototype)</h2>
+  <div class="disclosure">
+    <strong>正直な開示:</strong> <code>aruaru-llm</code>は画像を認識できないテキスト生成モデル(素のGPT-2)です。アップロードしたファイル自体は解析できません——下の「説明文」欄にご自身で書いていただいた内容だけをもとに、AIが助言を生成します。ここで扱えるのは<strong>ご自身の図面のみ</strong>です(他人の著作物の図面を模倣・派生生成する機能はありません)。<br /><br />
+    <strong>Honest disclosure:</strong> <code>aruaru-llm</code> is a text-only model (base GPT-2) that cannot see images. It only reads the text description you write below — the uploaded file itself is not analyzed. This is for <strong>your own drawings only</strong> (no imitation/derivative generation from others' copyrighted drawings).
+  </div>
+  <label>カテゴリ / Category
+    <select id="drawing-category">
+      <option value="building">建築 / Building</option>
+      <option value="semiconductor">半導体 / Semiconductor</option>
+      <option value="lsi">LSI</option>
+      <option value="custom_ic">カスタムIC / Custom IC</option>
+      <option value="automotive">自動車 / Automotive</option>
+      <option value="part">部品 / Part</option>
+      <option value="other">その他 / Other</option>
+    </select>
+  </label>
+  <label>説明文(AIはこれだけを読みます) / Description (this is all the AI reads)
+    <textarea id="drawing-description" rows="3" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid #5a3a5a; background:#241726; color:#f5eef7; box-sizing:border-box;" placeholder="例: 60mm四方の基板上に4層配線、電源は3.3V…"></textarea>
+  </label>
+  <label>ファイルを選択(複数可) / Select files (multiple allowed)
+    <input type="file" id="drawing-files" multiple />
+  </label>
+  <label>フォルダを選択(対応ブラウザのみ、Chrome/Edge等) / Select a folder (Chromium browsers only)
+    <input type="file" id="drawing-folder" multiple webkitdirectory />
+  </label>
+  <button type="button" id="upload-btn">⬆ アップロード / Upload</button>
+  <div id="upload-status" style="margin-top:8px; font-size:0.85rem;"></div>
+
+  <h3 style="font-size: 0.95rem; margin-top:16px;">保存済みの図面 / Saved drawings</h3>
+  <button type="button" id="refresh-drawings-btn">🔄 再読み込み / Refresh</button>
+  <div id="drawings-list" style="margin-top:8px;"></div>
+
+<script>
+// open-englishのAPIベースURLをlocalStorageから引き継げるようにする
+// (open-english側から遷移してきた場合の簡易連携、2026-08-25)。
+(function () {
+  try {
+    var savedBase = localStorage.getItem("open-cg-cad.openEnglishBase");
+    if (savedBase) document.getElementById("open-english-link").href = savedBase;
+  } catch (e) { /* localStorage不可でもリンクは既定値のまま機能する */ }
+})();
+
+async function generate() {
+  const resultEl = document.getElementById("result");
+  const svg = document.getElementById("preview");
+  resultEl.textContent = "生成中... / Generating...";
+  const body = {
+    width_m: Number(document.getElementById("width_m").value),
+    depth_m: Number(document.getElementById("depth_m").value),
+    coverage_ratio: Number(document.getElementById("coverage_ratio").value),
+    floor_area_ratio: Number(document.getElementById("floor_area_ratio").value),
+    building_type: document.getElementById("building_type").value,
+    floors: Number(document.getElementById("floors").value),
+  };
+  try {
+    const res = await fetch("/v1/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      resultEl.textContent = "エラー / Error: " + (data.error || "unknown");
+      svg.innerHTML = "";
+      return;
+    }
+    resultEl.textContent =
+      "建築面積 / Footprint: " + data.footprint_m2.toFixed(1) + " m²\n" +
+      "延床面積 / Total floor area: " + data.total_floor_area_m2.toFixed(1) + " m²\n" +
+      "階数 / Floors: " + data.floors + "\n\n" +
+      data.disclosure_ja + "\n" + data.disclosure_en;
+
+    // 簡易2Dプレビュー(敷地全体+建築面積の矩形を上から見た図として描画)。
+    const pad = 10;
+    const scaleX = (300 - pad * 2) / data.site_width_m;
+    const scaleY = (240 - pad * 2) / data.site_depth_m;
+    const scale = Math.min(scaleX, scaleY);
+    const siteW = data.site_width_m * scale;
+    const siteD = data.site_depth_m * scale;
+    const fpW = data.footprint_width_m * scale;
+    const fpD = data.footprint_depth_m * scale;
+    const siteX = pad, siteY = pad;
+    const fpX = siteX + (siteW - fpW) / 2;
+    const fpY = siteY + (siteD - fpD) / 2;
+    svg.innerHTML =
+      '<rect x="' + siteX + '" y="' + siteY + '" width="' + siteW + '" height="' + siteD + '" fill="none" stroke="#8ee6a1" stroke-width="2" />' +
+      '<rect x="' + fpX + '" y="' + fpY + '" width="' + fpW + '" height="' + fpD + '" fill="#d9a44166" stroke="#d9a441" stroke-width="2" />' +
+      '<text x="' + siteX + '" y="' + (siteY + siteD + 14) + '" fill="#8ee6a1" font-size="11">敷地 / Site</text>' +
+      '<text x="' + fpX + '" y="' + (fpY - 4 > 10 ? fpY - 4 : fpY + 14) + '" fill="#d9a441" font-size="11">建築面積 / Footprint</text>';
+  } catch (e) {
+    resultEl.textContent = "サーバーへ接続できませんでした / Could not reach server: " + e.message;
+    svg.innerHTML = "";
+  }
+}
+
+document.getElementById("generate-btn").addEventListener("click", generate);
+
+// ----------------------------------------------------------------------------
+// 図面のアップロード・一覧・AI解説(2026-08-25新設)。
+// **正直な開示**: AIはファイル自体を見ない。説明文だけを読む。
+// ----------------------------------------------------------------------------
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      // "data:...;base64,XXXX" の "XXXX" 部分だけを取り出す。
+      const result = reader.result;
+      const idx = result.indexOf(",");
+      resolve(idx >= 0 ? result.slice(idx + 1) : result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadOneFile(file, category, description) {
+  const data_base64 = await fileToBase64(file);
+  const res = await fetch("/v1/drawings/upload", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ filename: file.name, category, description, data_base64 }),
+  });
+  return res.json();
+}
+
+async function uploadDrawings() {
+  const statusEl = document.getElementById("upload-status");
+  const category = document.getElementById("drawing-category").value;
+  const description = document.getElementById("drawing-description").value;
+  const filesInput = document.getElementById("drawing-files");
+  const folderInput = document.getElementById("drawing-folder");
+  const files = [...filesInput.files, ...folderInput.files];
+  if (files.length === 0) {
+    statusEl.textContent = "ファイルまたはフォルダを選択してください / Please select files or a folder.";
+    return;
+  }
+  statusEl.textContent = `アップロード中(0/${files.length})... / Uploading (0/${files.length})...`;
+  let done = 0;
+  let failed = 0;
+  for (const file of files) {
+    try {
+      const data = await uploadOneFile(file, category, description);
+      if (!data.ok) failed += 1;
+    } catch (e) {
+      failed += 1;
+    }
+    done += 1;
+    statusEl.textContent = `アップロード中(${done}/${files.length})... / Uploading (${done}/${files.length})...`;
+  }
+  statusEl.textContent = `完了: ${done - failed}件成功、${failed}件失敗 / Done: ${done - failed} succeeded, ${failed} failed`;
+  filesInput.value = "";
+  folderInput.value = "";
+  loadDrawings();
+}
+
+async function analyzeDrawing(id, containerEl) {
+  containerEl.textContent = "解析中... / Analyzing...";
+  try {
+    const res = await fetch("/v1/drawings/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    containerEl.textContent = data.ok ? data.analysis : "エラー / Error: " + (data.error || "unknown");
+  } catch (e) {
+    containerEl.textContent = "サーバーへ接続できませんでした / Could not reach server: " + e.message;
+  }
+}
+
+async function loadDrawings() {
+  const listEl = document.getElementById("drawings-list");
+  listEl.textContent = "読み込み中... / Loading...";
+  try {
+    const res = await fetch("/v1/drawings");
+    const data = await res.json();
+    if (!data.ok || data.drawings.length === 0) {
+      listEl.textContent = "保存済みの図面はまだありません。 / No drawings saved yet.";
+      return;
+    }
+    listEl.innerHTML = "";
+    data.drawings.forEach((d) => {
+      const row = document.createElement("div");
+      row.className = "drawing-row";
+      const title = document.createElement("div");
+      title.textContent = `#${d.id} ${d.filename} [${d.category}] — ${d.created_at}`;
+      row.appendChild(title);
+      const desc = document.createElement("div");
+      desc.textContent = d.description;
+      row.appendChild(desc);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = d.has_analysis ? "🔄 再解析 / Re-analyze" : "🧠 AI解説 / Analyze";
+      const analysisEl = document.createElement("div");
+      analysisEl.className = "drawing-analysis";
+      btn.addEventListener("click", () => analyzeDrawing(d.id, analysisEl));
+      row.appendChild(btn);
+      row.appendChild(analysisEl);
+      listEl.appendChild(row);
+    });
+  } catch (e) {
+    listEl.textContent = "サーバーへ接続できませんでした / Could not reach server: " + e.message;
+  }
+}
+
+document.getElementById("upload-btn").addEventListener("click", uploadDrawings);
+document.getElementById("refresh-drawings-btn").addEventListener("click", loadDrawings);
+loadDrawings();
+</script>
+</body>
+</html>

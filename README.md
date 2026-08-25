@@ -74,6 +74,28 @@ cargo test --workspace --release
 `cg-cad-render`のテストは実Vulkanハードウェアが必要(無い場合は
 スキップし、モックでの「成功したふり」はしない)。
 
+## `server`クレート(HTTP API+簡易プレビュー画面、2026-08-25新設)
+
+ユーザー指示「open-englishとopen-cg-cadがハイブリッドに相互作用して
+機能させて」への対応の第一歩として、`server/`に最小構成のHTTP
+サーバーを新設した(既定 `http://127.0.0.1:4701/`)。
+
+- `POST /v1/generate`: 敷地・法規制・建物種別・階数からドラフト
+  建築物ボリュームを生成しJSONで返す。ブラウザ側は簡易2D平面図
+  (SVG)としてプレビュー表示する。
+- `POST /v1/drawings/upload`・`GET /v1/drawings`・
+  `GET /v1/drawings/get`・`POST /v1/drawings/analyze`: **利用者自身の
+  図面**(半導体・LSI・カスタムIC・自動車部品・建築等、複数ファイル/
+  フォルダ選択に対応)をSQLite(`data/open-cg-cad.sqlite3`)へ保存し、
+  利用者が入力した説明文を`aruaru-llm`(素のGPT-2)へ渡してテキスト
+  ベースの助言を得る。**正直な開示(最重要)**: `aruaru-llm`は画像を
+  認識できないため、アップロードしたファイル自体は一切解析しない
+  ——「AI解説」は説明文だけに基づく。他人の著作物の模倣・派生生成は
+  一切行わない(利用者自身のファイルの保管庫に限定、著作権配慮の
+  ためユーザーとの確認の上でこの範囲に決定した)。
+
+詳細はCLAUDE.mdのHANDOFF(2026-08-25)参照。
+
 ## 依存する既存プロジェクト
 
 - [`open-directx`](https://github.com/aon-co-jp/open-directx):

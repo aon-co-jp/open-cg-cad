@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/cg-cad-core",
     "crates/cg-cad-render",
+    "server",
 ]
 
 [workspace.package]

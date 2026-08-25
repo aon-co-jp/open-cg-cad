@@ -47,6 +47,87 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-25 `server`クレート新設(HTTP API+簡易プレビュー+図面DB)、
+  open-englishとの連携第一歩(ユーザー指示「open-englishとopen-cg-cadが
+  ハイブリッドに相互作用して機能させて、open-englishとeasy-web.tokyoから
+  もインストールと画面遷移可能にして」への対応)**:
+  1. **経緯**: `open-cg-cad`はこれまでライブラリクレート(`cg-cad-core`+
+     `cg-cad-render`)のみでHTTPサーバー・Webフロントエンドが一切存在
+     しなかった。「半導体・LSI・カスタムIC・自動車部品の図面設計
+     シミュレーション」への拡張要望もあったが、これは建築とは全く別の
+     巨大な工学分野(EDA)であり基礎コードが無いことを`AskUserQuestion`で
+     確認し、**建築CADの完成度向上に集中しつつ、「利用者自身の図面の
+     アップロード+AI解説(小規模試作)」のみに絞る**という合意を得た
+     (著作権上の懸念——他人の図面の模倣・派生生成は行わない——も
+     この場で確認済み)。
+  2. **`server`クレート新設**: `open_runo_poem_compat`(RPoem)ベース、
+     既定`127.0.0.1:4701`。`POST /v1/generate`が`cg_cad_core::
+     generate_building`を呼び出し、敷地/法規制/建物種別/階数から
+     ドラフト建築物ボリュームを生成してJSON(建築面積・延床面積・
+     プレビュー用の矩形寸法)を返す。フロントエンド(`server/src/
+     index.html`、`include_str!`で埋め込み)はSVGで簡易2D平面図
+     (敷地+建築面積の矩形)を描画する。**正直な開示**: 3Dメッシュ
+     そのもの・本格的な意匠検討は今回のスコープ外。
+     「🚀 建築シミュレーション開始 / START」ボタンでトリガーする。
+  3. **図面のアップロード+AI解説(SQLite永続化)**: 新規
+     `server/src/drawings_db.rs`(`rusqlite`、`data/open-cg-cad.sqlite3`、
+     `drawings`テーブル: id/filename/category/description/data(BLOB)/
+     analysis/created_at)。エンドポイント: `POST /v1/drawings/upload`
+     (複数ファイル・フォルダ選択対応、フロントエンド側で1件ずつ
+     ループ送信)・`GET /v1/drawings`(一覧、BLOBは含めない)・
+     `GET /v1/drawings/get?id=`(単体、Base64データ込み)・
+     `POST /v1/drawings/analyze`(`aruaru-llm`の`POST /v1/generate`へ
+     利用者の説明文のみを渡し、テキストベースの助言を取得・DBへ保存)。
+     アップロード上限は1件10MiB(`MAX_DRAWING_BYTES`)。
+     **正直な開示(最重要、UI・APIレスポンス両方に明記)**:
+     `aruaru-llm`は画像を認識できないテキスト生成モデル(素のGPT-2)
+     であり、アップロードされたファイル自体は一切解析しない——
+     「AI解説」は利用者が入力した説明文のみに基づく。カテゴリ選択肢に
+     半導体/LSI/カスタムIC/自動車/部品/建築/その他を用意しているが、
+     いずれも「保管庫+テキスト助言」の範囲に留まり、実際の設計解析・
+     図面生成は行わない。
+  4. **実機検証**: `cargo build --release -p open-cg-cad-server`成功
+     (初回ビルドで`RPoem`側の依存解決に手間取ったが、既存の`/root/
+     RPoem`等の共有クローンとは別に、このセッションのローカル環境
+     〈F:\runo〉の既存sibling配置をそのまま使用——特別な追加作業は
+     不要だった)。実際にサーバーを起動し、(a) `POST /v1/generate`で
+     House/20m×15m/建ぺい率0.6/容積率2.0/2階の入力から
+     `footprint_m2: 180.0`・`total_floor_area_m2: 360.0`を正しく算出
+     すること、(b) 不正な`building_type`("spaceship")が400+正直な
+     エラーで拒否されること、(c) 法規制違反(容積率が極端に低い設定で
+     50階指定)が`zoning compliance check failed`で正しく却下される
+     ことを`curl`で確認。(d) `POST /v1/drawings/upload`→
+     `GET /v1/drawings`→**実際に稼働中の`aruaru-llm`
+     (ポート4600)へ**`POST /v1/drawings/analyze`が到達し、実際の
+     GPT-2生成テキスト+開示文が返り、DBへ保存されることを確認
+     (**モックではなく実際のHTTP往復**)。(e) 実ブラウザで
+     STARTボタンのラベル・アップロードボタンの存在・一覧に保存済み
+     図面が表示されること・「🔄 再解析」ボタンのクリックが実際に
+     `/v1/drawings/analyze`を呼ぶことをJS経由で確認した。
+  5. **open-englishとの連携(第一歩、正直な開示)**: 今回実装したのは
+     (a) open-cg-cad側ページに「← open-englishへ戻る」リンク(既定
+     `http://127.0.0.1:4601/`、`localStorage`
+     `open-cg-cad.openEnglishBase`があれば上書き)のみ。**open-english
+     側からopen-cg-cadへのリンク・「インストール」導線・
+     easy-web.tokyoでの実デプロイは今回未着手**——次回の課題として
+     持ち越す。「ハイブリッドに相互作用」という要望のうち、
+     aruaru-llm経由の説明文連携(上記3番)は両アプリが同じ
+     `aruaru-llm`インスタンスを指せば自然に成立する設計にしてある
+     (専用の連携APIは今回新設していない)。
+  6. **`git push`について**: これまでの本リポジトリの慣習(ユーザーの
+     明示的な許可を得てから`push`する)を踏襲していたが、今回の
+     セッションでユーザーから明示的に「pushしてコミットして」の指示が
+     あったため、本コミットは実際に`push`する。
+  - 次にすべきこと: (1) open-english側に「🏗 open-cg-cadへ
+    (AI工務店&AI建設)」のようなリンクボタンを追加する、(2) easy-web.
+    tokyo(VPS)への実デプロイ(open-englishで実施した手順——
+    `git clone`+`cargo build`+systemdサービス化+`open-web-server`の
+    `domains.toml`への`path_prefix`追加——と同型の作業になる見込み)、
+    (3) `cargo test --workspace --release`・`cargo clippy`の再実行
+    (今回は`server`クレートの新規追加のみでビルド確認に留めた、
+    既存の`cg-cad-core`/`cg-cad-render`側のテストは今回変更していない
+    ため回帰は無いはずだが、次回明示的に確認すること)。
+
 - **2026-08-24 3リポジトリ横断テスト・E2E検証サイクル(2周、本リポジトリは
   変更なし)**: `open-cg-cad`/`open-fudousan`/`open-koumuten`横断で
   build/test/clippyと実HTTP E2E確認を2周実施。本リポジトリは
