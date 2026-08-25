@@ -57,6 +57,7 @@ pub mod solver_bridge;
 pub mod structural;
 pub mod tire_wet_grip;
 pub mod tunnel_noise;
+pub mod vehicle_config;
 pub mod zoning;
 
 pub use aero::{estimate_aero_force, AeroError, AeroForceResult, AeroShape};
