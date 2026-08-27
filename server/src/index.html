@@ -48,6 +48,34 @@
     <a href="http://127.0.0.1:4702/" id="open-kagaku-link" target="_blank" rel="noopener">🧪 open-kagaku(薬品シミュレーター)へ / To open-kagaku</a>
   </div>
 
+  <div class="disclosure" style="font-size:0.8rem;">
+    <strong>📤 UPLOAD/合成/再設計/GitHub書き込みについて / About upload, merge, redesign & GitHub commits:</strong>
+    これらの機能は<strong>open-english側の「📐 open-cg-cad 図面操作」パネル</strong>
+    (open-english本体の画面内)から行います——このopen-cg-cadページ自身には
+    専用UIをまだ設けていません(バックエンドAPIのみ実装済み、詳細はCLAUDE.md参照)。
+    GitHubへの書き込みは、open-englishに埋め込まれた<code>vault.html</code>
+    (クロスオリジンiframe暗号化保管庫)内でトークンを復号し、そこから
+    このopen-cg-cadサーバー(<code>POST /v1/agent/github/commit</code>)を
+    呼び出す設計です。<br />
+    <strong>シークレット/プライベートウィンドウで使う場合</strong>は、貼り付けるのは
+    <strong>open-english本体のURL</strong>(本番:
+    <code>https://easy-web.tokyo/open-english/</code>)であり、
+    <code>vault.html</code>やこのopen-cg-cadページのURLではありません
+    ——<code>vault.html</code>はopen-english本体に埋め込まれたiframeとしてのみ
+    正しく動作する設計のためです。<br /><br />
+    These features (upload, merge, redesign, GitHub commit) are driven from
+    <strong>open-english's "📐 open-cg-cad Drawing Ops" panel</strong> (inside the
+    open-english screen) — this open-cg-cad page itself has no dedicated UI for them yet
+    (backend API only, see CLAUDE.md). GitHub writes work by decrypting a token inside
+    open-english's embedded <code>vault.html</code> (a cross-origin iframe vault), which
+    then calls this open-cg-cad server's own <code>POST /v1/agent/github/commit</code>.
+    <strong>If you're using an incognito/private window</strong>, paste in
+    <strong>open-english's own URL</strong> (production:
+    <code>https://easy-web.tokyo/open-english/</code>) — not <code>vault.html</code>'s or this
+    open-cg-cad page's URL — since <code>vault.html</code> only works correctly when embedded
+    inside the open-english app.
+  </div>
+
   <label>敷地の幅 / Site width (m)<input type="number" id="width_m" value="20" min="1" step="0.1" /></label>
   <label>敷地の奥行き / Site depth (m)<input type="number" id="depth_m" value="15" min="1" step="0.1" /></label>
   <label>建ぺい率 / Building coverage ratio (0-1)<input type="number" id="coverage_ratio" value="0.6" min="0" max="1" step="0.01" /></label>

@@ -47,6 +47,19 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-27(続き3) GitHub連携・シークレットモード時の案内文をトップページへ
+  追加(ユーザー指示「open-cg-cadにも書いて表示して」への対応、open-english側
+  vault.html/CLAUDE.mdへ追加した同種の注記の複製)**: `server/src/index.html`の
+  nav直下に日英併記の説明ボックスを新設。(1) UPLOAD/合成/再設計/GitHub書き込みは
+  open-english側の「📐 open-cg-cad 図面操作」パネルから行う設計であり、この
+  open-cg-cadページ自身には専用UIがまだ無いこと、(2) GitHub書き込みは
+  open-english埋め込みの`vault.html`内でトークンを復号し、そこからこの
+  open-cg-cadサーバー(`POST /v1/agent/github/commit`)を呼ぶ設計であること、
+  (3) シークレット/プライベートウィンドウを使う場合は、貼り付けるべきURLは
+  `vault.html`でもこのopen-cg-cadページでもなく**open-english本体のURL**である
+  こと、を明記した。`cargo build --release -p open-cg-cad-server`成功
+  (`include_str!`でトップページを埋め込む設計のため再ビルドが必須)。
+
 - **2026-08-27(続き2) redesign/mergeの「実際にaruaru-llmを起動した状態
   での成功例は未確認」だった項目を実機検証(ユーザー指示「未TEST、
   未検証…を実用的になるまで数回繰り返して」への対応)**:
