@@ -106,6 +106,8 @@
   <button type="button" id="upload-btn">⬆ アップロード / Upload</button>
   <div id="upload-status" style="margin-top:8px; font-size:0.85rem;"></div>
 
+  <div id="shared-login-status" class="disclosure" style="display:none; font-size:0.85rem;"></div>
+
   <h3 style="font-size: 0.95rem; margin-top:16px;">保存済みの図面 / Saved drawings</h3>
   <button type="button" id="refresh-drawings-btn">🔄 再読み込み / Refresh</button>
   <div id="drawings-list" style="margin-top:8px;"></div>
@@ -123,6 +125,54 @@
     var savedBase = localStorage.getItem("open-cg-cad.openEnglishBase");
     document.getElementById("open-english-link").href = savedBase || defaultBase;
   } catch (e) { /* localStorage不可でもリンクは既定値のまま機能する */ }
+})();
+
+// 2026-08-27新設: open-englishのログイン状態(セッションCookie)を
+// open-cg-cadでも共有・表示する(ユーザー指示「open-englishを母体として
+// 動作するように」への対応、選択肢「open-englishのログイン/設定を
+// open-cg-cadが共有」)。
+//
+// **仕組み(正直な開示)**: open-cg-cad側に新規の認証機構は一切追加して
+// いない。open-englishが発行するセッションCookie(`oe_session`、
+// `Set-Cookie: ...; Path=/`)は**パス制限が無い**ため、本番デプロイ
+// (easy-web.tokyo、open-english/open-cg-cadは同一オリジン配下に
+// path prefixで同居)では、ブラウザがこのCookieを`/open-cg-cad/...`への
+// リクエストにも自動的に付与する。既存のopen-english側エンドポイント
+// `GET /v1/auth/session`(2026-08-26新設、変更なし)をそのまま呼ぶだけで、
+// 「1つのアカウントで両方にログイン」を実現できる——open-cg-cad側は
+// このCookieを検証するロジックを持たず、open-english側の判定結果を
+// 表示するのみ(セッション状態の唯一の情報源はopen-english)。
+// **正直な開示(制約)**: (1) ローカル開発時(別ポート=別オリジン)は
+// Cookieが共有されないため、この機能は「確認できませんでした」と
+// 表示するだけに留まる(異常ではない)。(2) open-english側で
+// ログイン必須化(`login_required`設定)が有効化されていない場合、
+// 誰でも(未ログインでも)両方使えるため、この表示は「今ログイン中か」
+// の参考情報に過ぎない——open-cg-cad側のどの機能もこのログイン状態で
+// ゲートしていない(次回、必要であれば`/v1/drawings/*`等を保護する
+// ことを検討、CLAUDE.md HANDOFF参照)。
+(function () {
+  try {
+    var isLocalHost = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+    var el = document.getElementById("shared-login-status");
+    if (isLocalHost) {
+      return; // ローカル開発時は別オリジンのためCookie共有が成立しない
+    }
+    var openEnglishBase = location.origin + "/open-english/";
+    fetch(openEnglishBase + "v1/auth/session", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        el.style.display = "block";
+        if (data.logged_in) {
+          el.textContent = "✅ open-englishで " + data.email + " としてログイン中(このアカウントはopen-cg-cadでも共有されます) / Logged in to open-english as " + data.email + " (this session is shared with open-cg-cad).";
+        } else {
+          el.textContent = "⚪ open-englishに未ログインです(ログインするとopen-cg-cadでもそのアカウントとして扱われます) / Not logged in to open-english (log in there to share the session here too).";
+        }
+      })
+      .catch(function () {
+        el.style.display = "block";
+        el.textContent = "⚠ open-englishのログイン状態を確認できませんでした / Could not check open-english login status.";
+      });
+  } catch (e) { /* 失敗してもページの他機能には影響しない */ }
 })();
 
 // open-kagakuへの導線(2026-08-25追加、open-kagaku側からの相互リンクと

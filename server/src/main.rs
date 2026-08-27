@@ -483,6 +483,125 @@ Based only on these two text descriptions (you cannot see the actual drawing ima
 }
 
 // ----------------------------------------------------------------------------
+// 複数図面の合成(2026-08-27新設)。ユーザー指示「open-englishのチャットで、
+// open-cg-cadで図面のUPLOADや複数図面の合成や手直しの指示なども出来る
+// ようにしたい」への対応の一部——`redesign_drawing`(旧図面1件+指示文)
+// とは別に、**2件以上の図面の説明文をまとめて1つの合成提案にする**
+// エンドポイント。仕組み・正直な開示は`redesign_drawing`と全く同じ
+// (テキストのみの比較、物理シミュレーションなし、CAD形状は変形しない)。
+// ----------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct MergeDrawingsRequest {
+    drawing_ids: Vec<i64>,
+    instruction_text: Option<String>,
+    aruaru_llm_base: Option<String>,
+}
+
+async fn merge_drawings(req: Request, db: Arc<DrawingsDb>) -> Response {
+    let body: MergeDrawingsRequest = match read_json_body(req).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if body.drawing_ids.len() < 2 {
+        return rs_json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({"ok": false, "error": "merge requires at least 2 drawing_ids / 合成には2件以上のdrawing_idsが必要です"}),
+        );
+    }
+    if body.drawing_ids.len() > 8 {
+        return rs_json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({"ok": false, "error": "merge supports at most 8 drawings at once (prompt-size limit) / 合成は一度に最大8件まで(プロンプト長の単純な上限)"}),
+        );
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    let mut filenames: Vec<String> = Vec::new();
+    let mut category = String::new();
+    for id in &body.drawing_ids {
+        match db.get(*id) {
+            Ok(Some(d)) => {
+                if category.is_empty() {
+                    category = d.category.clone();
+                }
+                if d.description.trim().is_empty() {
+                    return rs_json_response(
+                        StatusCode::BAD_REQUEST,
+                        &serde_json::json!({"ok": false, "error": format!("drawing #{id} has no text description to merge (the AI cannot see the file itself) / 図面#{id}に合成対象の説明文がありません")}),
+                    );
+                }
+                parts.push(format!("Drawing #{} (\"{}\"): {}", d.id, d.filename, d.description));
+                filenames.push(d.filename);
+            }
+            Ok(None) => return rs_json_response(StatusCode::NOT_FOUND, &serde_json::json!({"ok": false, "error": format!("drawing_id {id} not found")})),
+            Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("db get failed: {e}")})),
+        }
+    }
+
+    let base = body.aruaru_llm_base.unwrap_or_else(|| "http://localhost:4600".to_string());
+    let instruction_note = body.instruction_text.clone().unwrap_or_else(|| "(no extra instruction given, just combine them sensibly)".to_string());
+    let prompt = format!(
+        "You are a design reviewer for semiconductors (CPU/NPU/GPU), automobiles, motorcycles, high-speed trains, maglev trains, and aircraft (including their engines: gasoline, diesel, EV, PHEV). \
+The user uploaded {} separate old designs and wants them combined into one merged design. Here are their text descriptions (you cannot see the actual drawing images):\n{}\n\
+Additional instruction from the user: \"{}\". \
+Propose how to merge these designs into one, and list what to keep, drop, or reconcile from each. Trainer:",
+        body.drawing_ids.len(),
+        parts.join("\n"),
+        instruction_note
+    );
+    let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build() {
+        Ok(c) => c,
+        Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
+    };
+    let resp = match client
+        .post(format!("{}/v1/generate", base.trim_end_matches('/')))
+        .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return rs_json_response(
+                StatusCode::BAD_GATEWAY,
+                &serde_json::json!({"ok": false, "error": format!("could not reach aruaru-llm at {base}: {e}")}),
+            )
+        }
+    };
+    if !resp.status().is_success() {
+        return rs_json_response(StatusCode::BAD_GATEWAY, &serde_json::json!({"ok": false, "error": format!("aruaru-llm returned HTTP {}", resp.status())}));
+    }
+    let data: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(e) => return rs_json_response(StatusCode::BAD_GATEWAY, &serde_json::json!({"ok": false, "error": format!("invalid response from aruaru-llm: {e}")})),
+    };
+    let completion = data.get("completion").and_then(|v| v.as_str()).unwrap_or("(no completion field in aruaru-llm response)");
+    let disclosure_en = "Honest disclosure: this merge proposal is generated by a base GPT-2 model from text descriptions only — it does not visually inspect any uploaded file, does not perform any physical/electrical/aerodynamic simulation, and does not modify or overlay actual CAD geometry. It is narrative guidance only, and quality/accuracy is not guaranteed.";
+    let disclosure_ja = "正直な開示: この合成提案は素のGPT-2モデルが、テキストの説明文のみから生成したものです——アップロードされたどのファイルも視覚的に検査しておらず、物理/電気/空力シミュレーションも一切行っておらず、実際のCAD形状データを重ね合わせる/変形するものでもありません。あくまで文章による助言に過ぎず、品質・正確性は保証されません。";
+    let proposal = format!("{completion}\n\n{disclosure_en}\n{disclosure_ja}");
+
+    let merged_filename = format!("merge of [{}]", filenames.join(", "));
+    let description = format!("Merged from drawing IDs {:?}. Instruction: {}", body.drawing_ids, instruction_note);
+    // 合成は特定の単一の旧図面から派生したものではないため、
+    // `redesign_of_id`には先頭のIDを代表値として記録する(履歴を辿る
+    // 際の手がかりとして、複数IDの一覧は`description`に含めている)。
+    let id = match db.insert_redesign(&merged_filename, &category, &description, body.drawing_ids[0], &instruction_note, &proposal) {
+        Ok(id) => id,
+        Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("failed to save merge: {e}")})),
+    };
+
+    rs_json_response(
+        StatusCode::OK,
+        &serde_json::json!({
+            "ok": true,
+            "id": id,
+            "merged_from": body.drawing_ids,
+            "proposal": proposal,
+        }),
+    )
+}
+
+// ----------------------------------------------------------------------------
 // GitHub/VPSレンタルサーバーへの図面データ読み書き(2026-08-27新設)。
 // セキュリティ設計の詳細は`github_agent.rs`/`vps_agent.rs`のモジュールdoc
 // 参照(open-english/server側の実機検証済み設計をそのまま移植)。
@@ -586,6 +705,7 @@ async fn main() {
     let db_get = Arc::clone(&db);
     let db_analyze = Arc::clone(&db);
     let db_redesign = Arc::clone(&db);
+    let db_merge = Arc::clone(&db);
     let app = Route::new()
         .at("/", get(handler_fn(move |_req, _p| async move { index().await })))
         .at("/healthz", get(handler_fn(move |_req, _p| async move { healthz().await })))
@@ -596,10 +716,16 @@ async fn main() {
         .at("/v1/drawings/get", get(handler_fn(move |req, _p| { let db = Arc::clone(&db_get); async move { get_drawing(req, db).await } })))
         .at("/v1/drawings/analyze", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_analyze); async move { analyze_drawing(req, db).await } })))
         .at("/v1/drawings/redesign", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_redesign); async move { redesign_drawing(req, db).await } })))
+        .at("/v1/drawings/merge", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_merge); async move { merge_drawings(req, db).await } })))
         .at("/v1/agent/github/read", post(handler_fn(move |req, _p| async move { agent_github_read(req).await })))
         .at("/v1/agent/github/commit", post(handler_fn(move |req, _p| async move { agent_github_commit(req).await })))
         .at("/v1/agent/vps/read", get(handler_fn(move |req, _p| async move { agent_vps_read(req).await })))
-        .at("/v1/agent/vps/write", post(handler_fn(move |req, _p| async move { agent_vps_write(req).await })));
+        .at("/v1/agent/vps/write", post(handler_fn(move |req, _p| async move { agent_vps_write(req).await })))
+        .with_cors(); // 2026-08-27: open-englishページからのローカル開発時
+        // クロスオリジンfetch(図面操作パネル)を許可するため。本番
+        // (easy-web.tokyo)では両アプリが同一オリジンのため元々不要だが、
+        // ローカル開発(別ポート)でも同じコードパスで動作確認できるよう
+        // 有効化した。
 
     println!("conversation-free drawings DB: {}", drawings_db::db_path(&root).display());
     println!("open-cg-cad server listening on http://{addr}/");

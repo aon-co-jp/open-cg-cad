@@ -47,6 +47,34 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-27(続き) `POST /v1/drawings/merge`(複数図面の合成)を新設+
+  `.with_cors()`を有効化(ユーザー指示「open-englishのチャットで、
+  open-cg-cadで図面のUPLOADや複数図面の合成や手直しの指示なども出来る
+  ようにしたい」+「画面としてはopen-english、インストール先(実際の
+  データ操作先)はeasy-web.tokyo/open-cg-cad」への対応)**:
+  1. **`merge_drawings`(`server/src/main.rs`新設)**: 2〜8件の
+     `drawing_ids`+任意の`instruction_text`を受け取り、各図面の
+     `description`をまとめて`aruaru-llm`へ渡し、合成提案の文章を生成
+     させる。`redesign_drawing`と全く同じ誠実さの制約(テキストのみの
+     比較、物理シミュレーションなし、CAD形状は変形しない)。結果は
+     `insert_redesign`で新しい図面レコードとして保存(`redesign_of_id`
+     には先頭のIDを代表値として記録、合成元全体は`description`に
+     `Vec<i64>`として残す)。
+  2. **`.with_cors()`を有効化**: open-english側(別プロセス・別
+     オリジンになり得る)からのクロスオリジンfetchを許可するため
+     (`open_runo_poem_compat`の既存機能をルートチェーン末尾へ追加した
+     のみ、新規CORS実装は無し)。本番〈easy-web.tokyo〉では両アプリが
+     同一オリジンのため元々不要だが、ローカル開発(別ポート)でも同じ
+     コードパスで動作確認できるようにする狙い。
+  3. **実機検証**: `cargo build --release -p open-cg-cad-server`成功。
+     実際にサーバーを起動し、(a) 2件の設計("V6 gasoline engine..."+
+     "Lightweight carbon-fiber chassis...")をアップロード→
+     `POST /v1/drawings/merge`で`aruaru-llm`未起動時の正直なエラーを
+     確認、(b) `drawing_ids`が1件のみの場合`400`+「2件以上必要」の
+     正直なエラーを確認した(analyze_drawing/redesign_drawingと同型の
+     検証パターン)。
+  - 次にすべきこと: open-english側HANDOFF(同日エントリ)参照。
+
 - **2026-08-27 半導体/CPU・NPU・GPU・自動車/バイク/新幹線/リニア
   モーターカー/航空機の「旧図面を指示書/再アップロード設計図と照らし
   合わせて再設計する」機能+GitHub/VPS読み書きエージェントを新設
