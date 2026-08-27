@@ -47,6 +47,26 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-27(続き2) redesign/mergeの「実際にaruaru-llmを起動した状態
+  での成功例は未確認」だった項目を実機検証(ユーザー指示「未TEST、
+  未検証…を実用的になるまで数回繰り返して」への対応)**:
+  実際に`aruaru-llm.exe`(distilgpt2、既定ポート4600)を起動した状態で、
+  1. `POST /v1/drawings/redesign`: CPU設計(8-core、TDP 65W)+
+     指示文("Add an integrated NPU capable of 20 TOPS and reduce TDP to
+     45W.")→**実際に14.6秒でGPT-2の生成テキストが返り**、新しい図面
+     レコード(id=10)として保存されることを確認。
+  2. `POST /v1/drawings/merge`: CPU設計+GPU設計(2件)→**実際に16.9秒で
+     合成提案が生成され**保存されることを確認。
+  3. `GET /v1/drawings/get?id=`/`GET /v1/drawings`で、`redesign_of_id`
+     (合成元の代表ID)・`analysis`(生成された提案文)が正しく
+     読み出せることも確認。
+  いずれも前回エントリで「推定であることを明記する」としていた部分を
+  実際の成功例で裏付けた。open-english側からの3プロセス連携経路
+  (open-english→open-cg-cad→aruaru-llm)の実機検証結果は
+  `open-english/CLAUDE.md`同日エントリ(続き18)参照。
+  - 次にすべきこと: 実VPS/実GitHubトークンでの書き込みE2E検証は
+    引き続き未実施(実認証情報が必要なため)。
+
 - **2026-08-27(続き) `POST /v1/drawings/merge`(複数図面の合成)を新設+
   `.with_cors()`を有効化(ユーザー指示「open-englishのチャットで、
   open-cg-cadで図面のUPLOADや複数図面の合成や手直しの指示なども出来る

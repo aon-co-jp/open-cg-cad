@@ -15,7 +15,9 @@
 サーバー)読み書きエージェントを追加(詳細・正直な制約は
 [CLAUDE.md](CLAUDE.md)参照)。`https://easy-web.tokyo/open-cg-cad/`
 (本番稼働中、ローカルドライブへダウンロードしての運用を前提とした
-デモ・ダウンロード導線は`https://easy-web.tokyo/open-cg-cad/demo`)。
+デモ・ダウンロード導線は`https://easy-web.tokyo/open-cg-cad/demo`)。**実機検証済み**:
+再設計・合成とも、実際にaruaru-llmを起動した状態でGPT-2の生成テキストが
+実際に返ることを確認済み(詳細はCLAUDE.md参照)。
 
 ## ⚠️ 重要な免責事項(必読)
 

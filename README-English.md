@@ -17,7 +17,10 @@ VPS/rental-server read-write agents. See [CLAUDE.md](CLAUDE.md) for the full
 scope and honest disclosure of what is (and isn't) implemented.
 `https://easy-web.tokyo/open-cg-cad/` is live; a demo + download entry
 point (for running it locally on your own drive) is at
-`https://easy-web.tokyo/open-cg-cad/demo`.
+`https://easy-web.tokyo/open-cg-cad/demo`. **Verified on a real running
+instance**: both the redesign and merge success paths have been confirmed
+end-to-end with a live aruaru-llm actually returning generated text (see
+CLAUDE.md for details).
 
 ## ⚠️ Important disclaimer (must read)
 
