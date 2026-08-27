@@ -1,1 +1,0 @@
-E2E test probe via open-cg-cad-server's github_agent (2026-08-27), safe to delete.
