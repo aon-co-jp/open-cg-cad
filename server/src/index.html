@@ -26,6 +26,22 @@
     <strong>重要な免責事項:</strong> これは意匠検討の叩き台生成ツールであり、建築確認申請に使える正式な設計図面ではありません。日照権・耐震性・避難計画等の実シミュレーションは行っておらず、法規制パラメータは利用者が入力した値をそのまま使うだけです(自動取得はしません)。実際のプロジェクトには一級建築士・宅地建物取引士等の有資格者によるレビューが必須です。<br /><br />
     <strong>Honest disclosure:</strong> This is a draft massing tool only, not a permit-ready design. No real sunlight-rights, seismic, or evacuation simulation is performed, and zoning parameters are used exactly as entered (no automatic lookup). A licensed architect/professional must review any real project.
   </div>
+  <div class="disclosure" id="download-banner" style="display:none;">
+    <strong>これはデモです / This is a demo.</strong>
+    ローカルドライブへダウンロードしてご自身の環境で運用する場合は、
+    <a href="https://github.com/aon-co-jp/open-cg-cad" target="_blank" rel="noopener">GitHubのソースコード(aon-co-jp/open-cg-cad)</a>
+    から取得し(`git clone`+`cargo build --release -p open-cg-cad-server`)、
+    ご自身のPC/サーバー上で起動してください。<strong>正直な開示</strong>:
+    現時点ではワンクリックのインストーラー(open-english同様の
+    `.exe`/`install.sh`)はまだ用意していません——ソースからのビルドが
+    必要です。<br /><br />
+    To download and run this on your own drive/server, get the source
+    from <a href="https://github.com/aon-co-jp/open-cg-cad" target="_blank" rel="noopener">GitHub (aon-co-jp/open-cg-cad)</a>
+    and build it yourself (`git clone` + `cargo build --release -p
+    open-cg-cad-server`). <strong>Honest disclosure</strong>: there is no
+    one-click installer yet (unlike open-english) — building from source
+    is currently required.
+  </div>
   <div class="nav">
     <a href="http://127.0.0.1:4601/" id="open-english-link">← open-english(英会話トレーナー)へ戻る / Back to open-english</a>
     &nbsp;|&nbsp;
@@ -99,8 +115,13 @@
 // (open-english側から遷移してきた場合の簡易連携、2026-08-25)。
 (function () {
   try {
+    var isLocalHost = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+    // 2026-08-27: 本番デプロイ(easy-web.tokyo等)ではopen-englishも
+    // 同一オリジン配下にpath prefixで同居しているため、そちらを既定に
+    // する(open-english側app.jsの同種の修正〈isLocalHost分岐〉と対称)。
+    var defaultBase = isLocalHost ? "http://127.0.0.1:4601/" : location.origin + "/open-english/";
     var savedBase = localStorage.getItem("open-cg-cad.openEnglishBase");
-    if (savedBase) document.getElementById("open-english-link").href = savedBase;
+    document.getElementById("open-english-link").href = savedBase || defaultBase;
   } catch (e) { /* localStorage不可でもリンクは既定値のまま機能する */ }
 })();
 
@@ -112,6 +133,17 @@
     var savedKagakuBase = localStorage.getItem("open-cg-cad.openKagakuBase");
     if (savedKagakuBase) document.getElementById("open-kagaku-link").href = savedKagakuBase;
   } catch (e) { /* localStorage不可でもリンクは既定値のまま機能する */ }
+})();
+
+// 2026-08-27: /open-cg-cad/demo(デモ+ダウンロード導線)配下でのみ
+// ダウンロード案内バナーを表示する。パスの単純な部分一致判定のみ
+// (`/demo`が含まれるかどうか)——本番の`/open-cg-cad/`本体では非表示。
+(function () {
+  try {
+    if (location.pathname.indexOf("/demo") !== -1) {
+      document.getElementById("download-banner").style.display = "block";
+    }
+  } catch (e) { /* 失敗してもページの他機能には影響しない */ }
 })();
 
 // APIの呼び出しは絶対パス("/v1/...")ではなく現在のページ位置からの
