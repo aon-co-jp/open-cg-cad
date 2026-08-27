@@ -24,6 +24,8 @@ use std::sync::Arc;
 
 mod drawings_db;
 use drawings_db::DrawingsDb;
+mod github_agent;
+mod vps_agent;
 
 fn rs_json_response(status: StatusCode, value: &impl serde::Serialize) -> Response {
     let body = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
@@ -355,6 +357,208 @@ Based only on this text description (you cannot see the actual drawing image), p
     rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true, "analysis": analysis}))
 }
 
+// ----------------------------------------------------------------------------
+// 旧図面の再設計(2026-08-27新設)。ユーザー指示「半導体やCPUやNPUやGPU、
+// 自動車やバイクや新幹線やリニアモーターカーや航空機などの…古い図面に
+// 対して言葉や命令や、再度UPLOADする指示書や設計図などと照らし合わせて、
+// 図面を再設計出来る機能」への対応。
+//
+// **正直な開示(最重要、analyze_drawingと同じ制約)**: `aruaru-llm`は
+// 画像を認識できないテキスト生成モデル(素のGPT-2)である。ここで行える
+// 「再設計」は、(1)旧図面のアップロード時に利用者自身が入力した説明文
+// (テキスト)と、(2)利用者が今回入力する指示文、または再アップロードした
+// 指示書/仕様書図面の説明文(テキスト)の**2つのテキストを比較**して、
+// GPT-2に改善案の文章を生成させるものに限られる——半導体のダイ設計・
+// 自動車/航空機の実際のCAD形状そのものを機械的に変形・再計算する機能
+// ではない。物理シミュレーション(既存の`crash_sim`/`structural`/
+// `aero`等)と組み合わせた自動再設計は今回のスコープ外(HANDOFF参照)。
+// ----------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct RedesignDrawingRequest {
+    old_drawing_id: i64,
+    /// 利用者が直接入力する再設計指示(自由記述)。`spec_drawing_id`と
+    /// 併用可能(両方あれば両方の内容をプロンプトへ含める)。
+    instruction_text: Option<String>,
+    /// 再度アップロードした指示書/仕様書/新設計図(`drawings`テーブルの
+    /// 別レコードID)。これも説明文(テキスト)のみが参照される。
+    spec_drawing_id: Option<i64>,
+    aruaru_llm_base: Option<String>,
+}
+
+async fn redesign_drawing(req: Request, db: Arc<DrawingsDb>) -> Response {
+    let body: RedesignDrawingRequest = match read_json_body(req).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let old = match db.get(body.old_drawing_id) {
+        Ok(Some(d)) => d,
+        Ok(None) => return rs_json_response(StatusCode::NOT_FOUND, &serde_json::json!({"ok": false, "error": "old_drawing_id not found"})),
+        Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("db get failed: {e}")})),
+    };
+
+    let mut spec_text = body.instruction_text.clone().unwrap_or_default();
+    let mut spec_source_note = String::new();
+    if let Some(spec_id) = body.spec_drawing_id {
+        match db.get(spec_id) {
+            Ok(Some(spec)) => {
+                if !spec_text.trim().is_empty() {
+                    spec_text.push_str("\n\n");
+                }
+                spec_text.push_str(&spec.description);
+                spec_source_note = format!(" + spec drawing #{} (\"{}\")", spec.id, spec.filename);
+            }
+            Ok(None) => return rs_json_response(StatusCode::NOT_FOUND, &serde_json::json!({"ok": false, "error": "spec_drawing_id not found"})),
+            Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("db get failed: {e}")})),
+        }
+    }
+
+    if spec_text.trim().is_empty() {
+        return rs_json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({"ok": false, "error": "instruction_text and/or spec_drawing_id (with a non-empty description) is required / instruction_textまたはspec_drawing_id(説明文入り)のいずれかが必要です"}),
+        );
+    }
+    if old.description.trim().is_empty() {
+        return rs_json_response(
+            StatusCode::BAD_REQUEST,
+            &serde_json::json!({"ok": false, "error": "the old drawing has no text description to compare against (the AI cannot see the file itself) / 旧図面に比較対象の説明文がありません(AIはファイル自体を見ることはできません)"}),
+        );
+    }
+
+    let base = body.aruaru_llm_base.unwrap_or_else(|| "http://localhost:4600".to_string());
+    let prompt = format!(
+        "You are a design reviewer for semiconductors (CPU/NPU/GPU), automobiles, motorcycles, high-speed trains, maglev trains, and aircraft (including their engines: gasoline, diesel, EV, PHEV). \
+An old design named \"{}\" (category: {}) has this description written by its designer: \"{}\". \
+A new instruction or specification document says: \"{}\". \
+Based only on these two text descriptions (you cannot see the actual drawing images), propose what should change in a redesign, and list concrete differences. Trainer:",
+        old.filename, old.category, old.description, spec_text
+    );
+    let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build() {
+        Ok(c) => c,
+        Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
+    };
+    let resp = match client
+        .post(format!("{}/v1/generate", base.trim_end_matches('/')))
+        .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return rs_json_response(
+                StatusCode::BAD_GATEWAY,
+                &serde_json::json!({"ok": false, "error": format!("could not reach aruaru-llm at {base}: {e}")}),
+            )
+        }
+    };
+    if !resp.status().is_success() {
+        return rs_json_response(StatusCode::BAD_GATEWAY, &serde_json::json!({"ok": false, "error": format!("aruaru-llm returned HTTP {}", resp.status())}));
+    }
+    let data: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(e) => return rs_json_response(StatusCode::BAD_GATEWAY, &serde_json::json!({"ok": false, "error": format!("invalid response from aruaru-llm: {e}")})),
+    };
+    let completion = data.get("completion").and_then(|v| v.as_str()).unwrap_or("(no completion field in aruaru-llm response)");
+    let disclosure_en = "Honest disclosure: this redesign proposal is generated by a base GPT-2 model from text descriptions only — it does not visually inspect either uploaded file, does not perform any physical/electrical/aerodynamic simulation, and does not modify the actual CAD geometry. It is narrative guidance only, and quality/accuracy is not guaranteed.";
+    let disclosure_ja = "正直な開示: この再設計提案は素のGPT-2モデルが、テキストの説明文のみから生成したものです——アップロードされたどちらのファイルも視覚的に検査しておらず、物理/電気/空力シミュレーションも一切行っておらず、実際のCAD形状データを変形するものでもありません。あくまで文章による助言に過ぎず、品質・正確性は保証されません。";
+    let proposal = format!("{completion}\n\n{disclosure_en}\n{disclosure_ja}");
+
+    let redesign_filename = format!("{} (redesign proposal{})", old.filename, spec_source_note);
+    let id = match db.insert_redesign(&redesign_filename, &old.category, &old.description, old.id, &spec_text, &proposal) {
+        Ok(id) => id,
+        Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("failed to save redesign: {e}")})),
+    };
+
+    rs_json_response(
+        StatusCode::OK,
+        &serde_json::json!({
+            "ok": true,
+            "id": id,
+            "old_drawing_id": old.id,
+            "proposal": proposal,
+        }),
+    )
+}
+
+// ----------------------------------------------------------------------------
+// GitHub/VPSレンタルサーバーへの図面データ読み書き(2026-08-27新設)。
+// セキュリティ設計の詳細は`github_agent.rs`/`vps_agent.rs`のモジュールdoc
+// 参照(open-english/server側の実機検証済み設計をそのまま移植)。
+// ----------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct GithubReadRequest {
+    owner: String,
+    repo: String,
+    path: String,
+    branch: Option<String>,
+    token: Option<String>,
+}
+
+async fn agent_github_read(req: Request) -> Response {
+    let body: GithubReadRequest = match read_json_body(req).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    match github_agent::read_file(&body.owner, &body.repo, &body.path, body.branch.as_deref(), body.token.as_deref()).await {
+        Ok(file) => rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true, "content": file.content, "sha": file.sha})),
+        Err(e) => rs_json_response(StatusCode::BAD_GATEWAY, &serde_json::json!({"ok": false, "error": e.to_string()})),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct GithubCommitRequest {
+    owner: String,
+    repo: String,
+    path: String,
+    content: String,
+    message: String,
+    branch: Option<String>,
+    sha: Option<String>,
+    token: String,
+}
+
+async fn agent_github_commit(req: Request) -> Response {
+    let body: GithubCommitRequest = match read_json_body(req).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    match github_agent::commit_file(&body.owner, &body.repo, &body.path, &body.content, &body.message, body.branch.as_deref(), body.sha.as_deref(), &body.token).await {
+        Ok(html_url) => rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true, "html_url": html_url})),
+        Err(e) => rs_json_response(StatusCode::BAD_GATEWAY, &serde_json::json!({"ok": false, "error": e.to_string()})),
+    }
+}
+
+async fn agent_vps_read(req: Request) -> Response {
+    let path = match query_param(&req, "path") {
+        Some(p) => p,
+        None => return rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": "query parameter 'path' is required"})),
+    };
+    match vps_agent::read_file(&path).await {
+        Ok(content) => rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true, "content": content})),
+        Err(e) => rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"ok": false, "error": e.to_string()})),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct VpsWriteRequest {
+    path: String,
+    content: String,
+}
+
+async fn agent_vps_write(req: Request) -> Response {
+    let body: VpsWriteRequest = match read_json_body(req).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    match vps_agent::write_file(&body.path, &body.content).await {
+        Ok(()) => rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true})),
+        Err(e) => rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"ok": false, "error": e.to_string()})),
+    }
+}
+
 const INDEX_HTML: &str = include_str!("index.html");
 
 async fn index() -> Response {
@@ -381,6 +585,7 @@ async fn main() {
     let db_list = Arc::clone(&db);
     let db_get = Arc::clone(&db);
     let db_analyze = Arc::clone(&db);
+    let db_redesign = Arc::clone(&db);
     let app = Route::new()
         .at("/", get(handler_fn(move |_req, _p| async move { index().await })))
         .at("/healthz", get(handler_fn(move |_req, _p| async move { healthz().await })))
@@ -389,7 +594,12 @@ async fn main() {
         .at("/v1/drawings/upload", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_upload); async move { upload_drawing(req, db).await } })))
         .at("/v1/drawings", get(handler_fn(move |_req, _p| { let db = Arc::clone(&db_list); async move { list_drawings(db).await } })))
         .at("/v1/drawings/get", get(handler_fn(move |req, _p| { let db = Arc::clone(&db_get); async move { get_drawing(req, db).await } })))
-        .at("/v1/drawings/analyze", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_analyze); async move { analyze_drawing(req, db).await } })));
+        .at("/v1/drawings/analyze", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_analyze); async move { analyze_drawing(req, db).await } })))
+        .at("/v1/drawings/redesign", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_redesign); async move { redesign_drawing(req, db).await } })))
+        .at("/v1/agent/github/read", post(handler_fn(move |req, _p| async move { agent_github_read(req).await })))
+        .at("/v1/agent/github/commit", post(handler_fn(move |req, _p| async move { agent_github_commit(req).await })))
+        .at("/v1/agent/vps/read", get(handler_fn(move |req, _p| async move { agent_vps_read(req).await })))
+        .at("/v1/agent/vps/write", post(handler_fn(move |req, _p| async move { agent_vps_write(req).await })));
 
     println!("conversation-free drawings DB: {}", drawings_db::db_path(&root).display());
     println!("open-cg-cad server listening on http://{addr}/");

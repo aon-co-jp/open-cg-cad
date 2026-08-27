@@ -27,6 +27,17 @@ CLAUDE.mdのHANDOFF参照)——各ソルバー自体のプラットフォーム
 - `open_runo_poem_compat`(RPoem)ベースのため、プラットフォーム依存は
   RPoem自体の対応状況に従う(`cg-cad-render`と違いVulkan/グラフィックス
   依存は無いため、移植障壁自体はより少ないはず、未検証)。
+
+## 半導体/自動車/GitHub/VPSエージェント機能(2026-08-27新設)の移植ポイント
+
+- `server/src/github_agent.rs`: `reqwest`のみ(rustls-tls経由)、
+  プラットフォーム依存無し(open-english側からの移植元も同様)。
+- `server/src/vps_agent.rs`: `russh`(0.63、pure Rust SSH実装、
+  `ssh2`/libssh2のようなCバインディング・vcpkg等の追加ネイティブ依存
+  なし)を使用——移植障壁はRPoem/reqwest同様に少ないはず(未検証、
+  open-english側の同一実装も未検証のまま)。VPS側(接続先サーバー)は
+  POSIXシェル(`cat`/`cat >`が動く環境)を前提としており、Windows VPS
+  への接続は想定していない。
 - SQLite永続化(`rusqlite`、`bundled` feature)を使用——利用者環境に
   システムSQLiteが入っているかに依存しない設計で、この点は
   `open-english/server`の`db.rs`と同じ方針。

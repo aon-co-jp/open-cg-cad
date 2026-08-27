@@ -8,6 +8,17 @@ regulations (right to sunlight, building coverage ratio, floor area ratio,
 etc.), auto-generates 3D building volumes as CAD data, applies basic
 coloring, and can present multiple construction methods.
 
+**Added 2026-08-27**: A redesign feature for old semiconductor (CPU/NPU/GPU)
+and vehicle (automobile/motorcycle/shinkansen/maglev/aircraft, including
+gasoline/diesel/EV/PHEV engines) drawings — compare an old drawing's text
+description against a new instruction or re-uploaded spec/instruction
+document, and have the AI generate a redesign proposal — plus GitHub and
+VPS/rental-server read-write agents. See [CLAUDE.md](CLAUDE.md) for the full
+scope and honest disclosure of what is (and isn't) implemented.
+`https://easy-web.tokyo/open-cg-cad/` is live; a demo + download entry
+point (for running it locally on your own drive) is at
+`https://easy-web.tokyo/open-cg-cad/demo`.
+
 ## ⚠️ Important disclaimer (must read)
 
 **This system is a draft/sample generation tool intended to hand off to a

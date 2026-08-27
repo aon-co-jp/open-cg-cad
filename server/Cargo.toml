@@ -17,4 +17,13 @@ bytes = "1.9"
 rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 base64 = "0.22"
+anyhow = "1"
+# 2026-08-27: 半導体/CPU/NPU/GPU・自動車/バイク/新幹線/リニア/航空機の
+# 旧図面をVPS・GitHubへ読み書きする機能のため。open-english/server/src/
+# {vps_agent,github_agent}.rsの実機検証済みセキュリティ設計(許可パス
+# オプトイン・任意シェルコマンド禁止・トークン非永続化)をそのまま移植。
+# russh 0.63以降はrussh::keysモジュールへ鍵機能が統合されており、
+# 別クレートrussh-keysは不要(open-english/CLAUDE.md 2026-08-25の
+# アップグレード記録参照)。
+russh = "0.63"
 
