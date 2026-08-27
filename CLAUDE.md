@@ -47,6 +47,39 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 
 ## HANDOFF
 
+- **2026-08-27(続き4) 実VPS(easy-web.tokyo)+実GitHubトークンでの
+  `github_agent`書き込みE2E検証を実施(これまで「実認証情報が必要
+  なため未実施」と記録されていた項目を解消)**:
+  1. **実施内容**: 実際に稼働中のVPS(conoha、`easy-web.tokyo`)上の
+     `open-cg-cad.service`(`127.0.0.1:8105`)に対し、VPSの
+     `~/.git-credentials`に既に保存されている実GitHub PAT(fine-grained、
+     このセッションでは値をVPSシェル内でのみ展開し、チャット/ログへは
+     一切出力しない形で扱った)を使って、
+     `POST /v1/agent/github/commit`が**実際に`aon-co-jp/open-cg-cad`
+     (非公開リポジトリ)へファイルを書き込めること**を確認した
+     (使い捨てのテストファイル`_e2e_test/probe.txt`、コミット
+     `18f8484`)。続けて`POST /v1/agent/github/read`で**実際に読み戻せる
+     こと**も確認(`ok:true`+書き込んだ内容と完全一致)。
+  2. **検証で分かった注意点**: このリポジトリは非公開(private)のため、
+     認証無しの`curl`(GitHub API)では`404 Not Found`が返る——これは
+     「書き込みに失敗した」のではなく「非公開リポジトリへの匿名
+     アクセスをGitHub側が404で隠している」という正常な挙動だった。
+     実際にVPS上の同じトークンで認証付きリクエストを送って初めて
+     ファイルの実在を確認できた(一度この404で「失敗したのでは」と
+     早合点しかけたが、認証の有無を疑って再検証した)。
+  3. **後片付け**: 検証用ファイルはGitHub Contents APIの`DELETE`で
+     実際に削除し(コミット`5f9424c`)、リポジトリに永続的な痕跡を
+     残さないようにした。ローカルの`F:\runo\open-cg-cad`クローンも
+     `git pull`で最新化済み。
+  4. **正直な開示・今回の検証範囲**: (a) VPS連携(`vps_agent`側、SSH
+     経由の読み書き)は今回検証していない——GitHub側のみ。(b) トークン
+     自体はこのセッションを通じて一切チャット出力・ファイル保存して
+     いない(VPSシェル内の環境変数として展開し、使用後`unset`)。
+  - 次にすべきこと: (1) `vps_agent`(SSH経由のVPS読み書き)の実機E2E
+    検証、(2) open-english側の「📐 open-cg-cad 図面操作」パネルから、
+    実際にvault.html経由でこのGitHub連携を呼び出すエンドツーエンドの
+    実機確認(今回はopen-cg-cad-serverのAPIを直接叩いた検証にとどまる)。
+
 - **2026-08-27(続き3) GitHub連携・シークレットモード時の案内文をトップページへ
   追加(ユーザー指示「open-cg-cadにも書いて表示して」への対応、open-english側
   vault.html/CLAUDE.mdへ追加した同種の注記の複製)**: `server/src/index.html`の
