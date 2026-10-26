@@ -720,6 +720,7 @@ async fn main() {
         .at("/v1/agent/github/read", post(handler_fn(move |req, _p| async move { agent_github_read(req).await })))
         .at("/v1/agent/github/commit", post(handler_fn(move |req, _p| async move { agent_github_commit(req).await })))
         .at("/v1/agent/vps/read", get(handler_fn(move |req, _p| async move { agent_vps_read(req).await })))
+        .docs_auto("/api", "open-cg-cad server", env!("CARGO_PKG_VERSION"))
         .at("/v1/agent/vps/write", post(handler_fn(move |req, _p| async move { agent_vps_write(req).await })))
         .with_cors(); // 2026-08-27: open-englishページからのローカル開発時
         // クロスオリジンfetch(図面操作パネル)を許可するため。本番
