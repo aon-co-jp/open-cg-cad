@@ -26,6 +26,7 @@ mod drawings_db;
 use drawings_db::DrawingsDb;
 mod github_agent;
 mod vps_agent;
+mod api_docs;
 
 fn rs_json_response(status: StatusCode, value: &impl serde::Serialize) -> Response {
     let body = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
@@ -57,7 +58,7 @@ async fn healthz() -> Response {
     rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true}))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct GenerateRequest {
     width_m: f64,
     depth_m: f64,
@@ -195,7 +196,7 @@ async fn generate_dxf(req: Request) -> Response {
 /// 「まず単純な上限を設ける」という考え方)。
 const MAX_DRAWING_BYTES: usize = 10 * 1024 * 1024;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct UploadDrawingRequest {
     filename: String,
     category: String,
@@ -289,7 +290,7 @@ fn urlencoding_decode_simple(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct AnalyzeDrawingRequest {
     id: i64,
     aruaru_llm_base: Option<String>,
@@ -374,7 +375,7 @@ Based only on this text description (you cannot see the actual drawing image), p
 // `aero`等)と組み合わせた自動再設計は今回のスコープ外(HANDOFF参照)。
 // ----------------------------------------------------------------------------
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct RedesignDrawingRequest {
     old_drawing_id: i64,
     /// 利用者が直接入力する再設計指示(自由記述)。`spec_drawing_id`と
@@ -491,7 +492,7 @@ Based only on these two text descriptions (you cannot see the actual drawing ima
 // (テキストのみの比較、物理シミュレーションなし、CAD形状は変形しない)。
 // ----------------------------------------------------------------------------
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct MergeDrawingsRequest {
     drawing_ids: Vec<i64>,
     instruction_text: Option<String>,
@@ -607,7 +608,7 @@ Propose how to merge these designs into one, and list what to keep, drop, or rec
 // 参照(open-english/server側の実機検証済み設計をそのまま移植)。
 // ----------------------------------------------------------------------------
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct GithubReadRequest {
     owner: String,
     repo: String,
@@ -627,7 +628,7 @@ async fn agent_github_read(req: Request) -> Response {
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct GithubCommitRequest {
     owner: String,
     repo: String,
@@ -661,7 +662,7 @@ async fn agent_vps_read(req: Request) -> Response {
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct VpsWriteRequest {
     path: String,
     content: String,
@@ -720,7 +721,7 @@ async fn main() {
         .at("/v1/agent/github/read", post(handler_fn(move |req, _p| async move { agent_github_read(req).await })))
         .at("/v1/agent/github/commit", post(handler_fn(move |req, _p| async move { agent_github_commit(req).await })))
         .at("/v1/agent/vps/read", get(handler_fn(move |req, _p| async move { agent_vps_read(req).await })))
-        .docs_auto("/api", "open-cg-cad server", env!("CARGO_PKG_VERSION"))
+        .docs("/api", api_docs::spec())
         .at("/v1/agent/vps/write", post(handler_fn(move |req, _p| async move { agent_vps_write(req).await })))
         .with_cors(); // 2026-08-27: open-englishページからのローカル開発時
         // クロスオリジンfetch(図面操作パネル)を許可するため。本番

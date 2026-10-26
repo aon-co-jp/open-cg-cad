@@ -24,7 +24,7 @@ pub struct DrawingsDb {
     conn: Mutex<Connection>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct DrawingSummary {
     pub id: i64,
     pub filename: String,
@@ -35,7 +35,7 @@ pub struct DrawingSummary {
     pub redesign_of_id: Option<i64>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct DrawingFull {
     pub id: i64,
     pub filename: String,
