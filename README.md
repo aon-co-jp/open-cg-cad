@@ -191,8 +191,8 @@ HANDOFF〈2026-08-25 続き10〉参照)。
 
 ## ビルド方法と配布物 / Building and releases
 
-**ビルドの前提(重要)**: このリポジトリは、兄弟リポジトリを**同じ親フォルダに並べて置く**前提のCargo path依存です。次の6つを同じ親フォルダに clone してください。
-**Prerequisite (important)**: this repository uses Cargo path dependencies on sibling repositories. Clone these six into the **same parent folder**:
+**ビルドの前提(重要)**: このリポジトリは、兄弟リポジトリを**同じ親フォルダに並べて置く**前提のCargo path依存です。次のリポジトリを同じ親フォルダに clone してください(このリポジトリ自身を含む)。
+**Prerequisite (important)**: this repository uses Cargo path dependencies on sibling repositories. Clone these repositories (including this one) into the **same parent folder**:
 
 ```bash
 for r in open-cg-cad open-cuda open-cpu open-directx RPoem open-web-server RS-SmartTCP; do
