@@ -187,3 +187,28 @@ HANDOFF〈2026-08-25 続き10〉参照)。
   モジュールが`POST /v1/generate`経由で計算結果の自然言語説明を取得
   する(実サーバーでの検証はCI環境では走らない`#[ignore]`テストとして
   存在、CLAUDE.mdのHANDOFF参照)。
+
+
+## ビルド方法と配布物 / Building and releases
+
+**ビルドの前提(重要)**: このリポジトリは、兄弟リポジトリを**同じ親フォルダに並べて置く**前提のCargo path依存です。次の6つを同じ親フォルダに clone してください。
+**Prerequisite (important)**: this repository uses Cargo path dependencies on sibling repositories. Clone these six into the **same parent folder**:
+
+```bash
+for r in open-cg-cad open-cuda open-cpu open-directx RPoem open-web-server RS-SmartTCP; do
+  git clone https://github.com/aon-co-jp/$r.git
+done
+cd open-cg-cad
+cargo build --workspace --release
+cargo test --workspace --release
+cargo run --release -p open-cg-cad-server   # http://127.0.0.1:4701/
+```
+
+Windows (x86_64) のビルド済み `open-cg-cad-server.exe` は Releases から。起動すると `http://127.0.0.1:4701/` でWebGLプレビュー付きの画面が開けます(図面DBは実行ファイルの隣の `data/` に作られます)。
+A prebuilt Windows (x86_64) `open-cg-cad-server.exe` is on the Releases page; run it and open `http://127.0.0.1:4701/`.
+
+**注意 / Notice**: 建築基準・構造・施工方法の判断を支援する**下書き用の補助ツール**で、有資格者の確認の代わりにはなりません。外部ソルバー(CalculiX・OpenFOAM)は未導入の環境では動かず、その部分は未検証です。 / This is a **draft-stage assistant**, not a substitute for licensed professional review. The external solvers (CalculiX, OpenFOAM) are not bundled and those paths are unverified here.
+
+## ライセンス / License
+
+MIT(`LICENSE`参照)。 / MIT (see `LICENSE`).
