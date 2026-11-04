@@ -188,7 +188,7 @@ pub fn explain_tunnel_noise_via_aruaru_llm(base_url: &str, result: &NoseOptimiza
 /// `aruaru-llm`の`POST /v1/generate`を呼び出す共通処理
 /// (`explain_via_aruaru_llm`から抽出、3つの説明関数で重複させない)。
 fn call_generate(base_url: &str, prompt: &str) -> Result<String, LlmExplainError> {
-    let url = format!("{}/v1/generate", base_url.trim_end_matches('/'));
+    let url = format!("{}/aruaru_llm.v1.Llm/Generate", base_url.trim_end_matches('/'));
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()

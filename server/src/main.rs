@@ -328,7 +328,7 @@ Based only on this text description (you cannot see the actual drawing image), p
         Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
     };
     let resp = match client
-        .post(format!("{}/v1/generate", base.trim_end_matches('/')))
+        .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 96}))
         .send()
         .await
@@ -441,7 +441,7 @@ Based only on these two text descriptions (you cannot see the actual drawing ima
         Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
     };
     let resp = match client
-        .post(format!("{}/v1/generate", base.trim_end_matches('/')))
+        .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
         .send()
         .await
@@ -556,7 +556,7 @@ Propose how to merge these designs into one, and list what to keep, drop, or rec
         Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
     };
     let resp = match client
-        .post(format!("{}/v1/generate", base.trim_end_matches('/')))
+        .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
         .send()
         .await
