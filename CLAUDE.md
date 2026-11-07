@@ -1388,3 +1388,12 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 - **WASM по-прежнему остаётся технологией для интерфейса.** Изменилось лишь то, что вызываемый им API теперь построен на Connect.
 - Интерфейсы, форма которых задана внешним стандартом (ACME, обратные вызовы OAuth, вебхуки сторонних сервисов, проверки работоспособности, статические файлы, OTLP), остаются обычным HTTP.
 - **Если есть сомнения — выбирайте Connect.**
+
+## REST全廃・Connect化(2026-11-07)
+旧 `/v1/*` の12本(generate・generate/dxf・drawings/{upload,get,analyze,redesign,merge}・drawings一覧・agent/github/{read,commit}・agent/vps/{read,write})を削除し(404)、
+**`POST /open_cg_cad.v1.Cad/<Method>`**(Generate・GenerateDxf・UploadDrawing・ListDrawings・GetDrawing・AnalyzeDrawing・RedesignDrawing・MergeDrawings・GithubRead・GithubCommit・VpsRead・VpsWrite、本文はJSON)へ移した。
+- GETで取っていた `drawings/get?id=`・`agent/vps/read?path=` は本文 `{"id":..}`・`{"path":..}` に変更。画面(`index.html`)の呼び出しも同時に更新。
+- 本文は RS-JSON `from_str_secure`(64MiB・深さ・重複キー拒否)。エラーは `{"code","message"}`(画面が読む `error`/`ok` も残す)。REST文書(`/api` の OpenAPI/Swagger)は廃止し `api_docs.rs` を削除。
+- 確認: 実サーバーを起動して `curl` で、旧経路404・`/healthz` 200・ListDrawings 200・重複キー400・型違い400・未存在404を確認。`index.html` のブラウザ操作での通し確認と、本番(VPS)反映は未実施。
+- 注意: 画面の共有ログイン表示は open-english の `GET v1/auth/session` を呼ぶ。open-english 側の移行状況に合わせて別途直す必要があるかもしれない(未確認)。
+- 例外: `/`(画面)・`/healthz`。

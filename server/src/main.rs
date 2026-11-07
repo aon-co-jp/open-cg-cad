@@ -26,10 +26,34 @@ mod drawings_db;
 use drawings_db::DrawingsDb;
 mod github_agent;
 mod vps_agent;
-mod api_docs;
+
+/// Connectのエラーコード(HTTPステータスの対応表)。
+fn connect_code(status: StatusCode) -> &'static str {
+    match status.as_u16() {
+        400 => "invalid_argument",
+        401 => "unauthenticated",
+        403 => "permission_denied",
+        404 => "not_found",
+        409 => "aborted",
+        429 => "resource_exhausted",
+        501 => "unimplemented",
+        502 | 503 => "unavailable",
+        504 => "deadline_exceeded",
+        _ => "internal",
+    }
+}
 
 fn rs_json_response(status: StatusCode, value: &impl serde::Serialize) -> Response {
-    let body = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
+    let mut v = serde_json::to_value(value).unwrap_or_else(|_| serde_json::json!({}));
+    // エラーは Connect 形式 `{"code","message"}`。画面が読む既存の`error`/`ok`も残す。
+    if status.as_u16() >= 400 {
+        if let Some(o) = v.as_object_mut() {
+            let msg = o.get("error").and_then(|e| e.as_str()).unwrap_or("error").to_string();
+            o.insert("code".into(), connect_code(status).into());
+            o.insert("message".into(), msg.into());
+        }
+    }
+    let body = serde_json::to_vec(&v).unwrap_or_else(|_| b"{}".to_vec());
     hyper::Response::builder()
         .status(status)
         .header("content-type", "application/json")
@@ -51,7 +75,10 @@ async fn read_json_body<T: serde::de::DeserializeOwned>(req: Request) -> Result<
         Ok(collected) => collected.to_bytes(),
         Err(_) => return Err(rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": "failed to read request body"}))),
     };
-    serde_json::from_slice::<T>(&bytes).map_err(|e| rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("invalid JSON body: {e}")})))
+    // RS-JSON: サイズ・深さ・重複キーの上限つき(図面のbase64を含むため本文は64MiBまで)。
+    let bad = |e: String| rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": format!("invalid JSON body: {e}")}));
+    let text = std::str::from_utf8(&bytes).map_err(|e| bad(e.to_string()))?;
+    rust_json::from_str_secure::<T>(text, &rust_json::Limits { max_bytes: 64 * 1024 * 1024, ..Default::default() }).map_err(|e| bad(e.to_string()))
 }
 
 async fn healthz() -> Response {
@@ -236,58 +263,21 @@ async fn list_drawings(db: Arc<DrawingsDb>) -> Response {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct GetDrawingRequest {
+    id: i64,
+}
+
 async fn get_drawing(req: Request, db: Arc<DrawingsDb>) -> Response {
-    let id: i64 = match query_param(&req, "id").and_then(|s| s.parse().ok()) {
-        Some(v) => v,
-        None => return rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": "query parameter 'id' (integer) is required"})),
+    let id = match read_json_body::<GetDrawingRequest>(req).await {
+        Ok(b) => b.id,
+        Err(r) => return r,
     };
     match db.get(id) {
         Ok(Some(d)) => rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true, "drawing": d})),
         Ok(None) => rs_json_response(StatusCode::NOT_FOUND, &serde_json::json!({"ok": false, "error": "not found"})),
         Err(e) => rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("db get failed: {e}")})),
     }
-}
-
-fn query_param(req: &Request, key: &str) -> Option<String> {
-    let query = req.uri().query()?;
-    for pair in query.split('&') {
-        let mut it = pair.splitn(2, '=');
-        let k = it.next()?;
-        let v = it.next().unwrap_or("");
-        if k == key {
-            return Some(urlencoding_decode_simple(v));
-        }
-    }
-    None
-}
-
-/// 依存クレート追加を避けるための最小限のURLデコード(`%XX`と`+`のみ対応)。
-fn urlencoding_decode_simple(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b'%' if i + 2 < bytes.len() => {
-                if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                    out.push(byte);
-                    i += 3;
-                } else {
-                    out.push(bytes[i]);
-                    i += 1;
-                }
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[derive(serde::Deserialize, schemars::JsonSchema)]
@@ -651,10 +641,15 @@ async fn agent_github_commit(req: Request) -> Response {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct VpsReadRequest {
+    path: String,
+}
+
 async fn agent_vps_read(req: Request) -> Response {
-    let path = match query_param(&req, "path") {
-        Some(p) => p,
-        None => return rs_json_response(StatusCode::BAD_REQUEST, &serde_json::json!({"error": "query parameter 'path' is required"})),
+    let path = match read_json_body::<VpsReadRequest>(req).await {
+        Ok(b) => b.path,
+        Err(r) => return r,
     };
     match vps_agent::read_file(&path).await {
         Ok(content) => rs_json_response(StatusCode::OK, &serde_json::json!({"ok": true, "content": content})),
@@ -707,22 +702,23 @@ async fn main() {
     let db_analyze = Arc::clone(&db);
     let db_redesign = Arc::clone(&db);
     let db_merge = Arc::clone(&db);
+    const P: &str = "/open_cg_cad.v1.Cad/";
     let app = Route::new()
         .at("/", get(handler_fn(move |_req, _p| async move { index().await })))
         .at("/healthz", get(handler_fn(move |_req, _p| async move { healthz().await })))
-        .at("/v1/generate", post(handler_fn(move |req, _p| async move { generate(req).await })))
-        .at("/v1/generate/dxf", post(handler_fn(move |req, _p| async move { generate_dxf(req).await })))
-        .at("/v1/drawings/upload", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_upload); async move { upload_drawing(req, db).await } })))
-        .at("/v1/drawings", get(handler_fn(move |_req, _p| { let db = Arc::clone(&db_list); async move { list_drawings(db).await } })))
-        .at("/v1/drawings/get", get(handler_fn(move |req, _p| { let db = Arc::clone(&db_get); async move { get_drawing(req, db).await } })))
-        .at("/v1/drawings/analyze", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_analyze); async move { analyze_drawing(req, db).await } })))
-        .at("/v1/drawings/redesign", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_redesign); async move { redesign_drawing(req, db).await } })))
-        .at("/v1/drawings/merge", post(handler_fn(move |req, _p| { let db = Arc::clone(&db_merge); async move { merge_drawings(req, db).await } })))
-        .at("/v1/agent/github/read", post(handler_fn(move |req, _p| async move { agent_github_read(req).await })))
-        .at("/v1/agent/github/commit", post(handler_fn(move |req, _p| async move { agent_github_commit(req).await })))
-        .at("/v1/agent/vps/read", get(handler_fn(move |req, _p| async move { agent_vps_read(req).await })))
-        .docs("/api", api_docs::spec())
-        .at("/v1/agent/vps/write", post(handler_fn(move |req, _p| async move { agent_vps_write(req).await })))
+        // 自前のAPIは Connect の単純呼び出し: `POST /open_cg_cad.v1.Cad/<Method>`(本文はJSON)。
+        .at(&format!("{P}Generate"), post(handler_fn(move |req, _p| async move { generate(req).await })))
+        .at(&format!("{P}GenerateDxf"), post(handler_fn(move |req, _p| async move { generate_dxf(req).await })))
+        .at(&format!("{P}UploadDrawing"), post(handler_fn(move |req, _p| { let db = Arc::clone(&db_upload); async move { upload_drawing(req, db).await } })))
+        .at(&format!("{P}ListDrawings"), post(handler_fn(move |_req, _p| { let db = Arc::clone(&db_list); async move { list_drawings(db).await } })))
+        .at(&format!("{P}GetDrawing"), post(handler_fn(move |req, _p| { let db = Arc::clone(&db_get); async move { get_drawing(req, db).await } })))
+        .at(&format!("{P}AnalyzeDrawing"), post(handler_fn(move |req, _p| { let db = Arc::clone(&db_analyze); async move { analyze_drawing(req, db).await } })))
+        .at(&format!("{P}RedesignDrawing"), post(handler_fn(move |req, _p| { let db = Arc::clone(&db_redesign); async move { redesign_drawing(req, db).await } })))
+        .at(&format!("{P}MergeDrawings"), post(handler_fn(move |req, _p| { let db = Arc::clone(&db_merge); async move { merge_drawings(req, db).await } })))
+        .at(&format!("{P}GithubRead"), post(handler_fn(move |req, _p| async move { agent_github_read(req).await })))
+        .at(&format!("{P}GithubCommit"), post(handler_fn(move |req, _p| async move { agent_github_commit(req).await })))
+        .at(&format!("{P}VpsRead"), post(handler_fn(move |req, _p| async move { agent_vps_read(req).await })))
+        .at(&format!("{P}VpsWrite"), post(handler_fn(move |req, _p| async move { agent_vps_write(req).await })))
         .with_cors(); // 2026-08-27: open-englishページからのローカル開発時
         // クロスオリジンfetch(図面操作パネル)を許可するため。本番
         // (easy-web.tokyo)では両アプリが同一オリジンのため元々不要だが、

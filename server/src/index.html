@@ -55,7 +55,7 @@
     専用UIをまだ設けていません(バックエンドAPIのみ実装済み、詳細はCLAUDE.md参照)。
     GitHubへの書き込みは、open-englishに埋め込まれた<code>vault.html</code>
     (クロスオリジンiframe暗号化保管庫)内でトークンを復号し、そこから
-    このopen-cg-cadサーバー(<code>POST /v1/agent/github/commit</code>)を
+    このopen-cg-cadサーバー(<code>POST /open_cg_cad.v1.Cad/GithubCommit</code>)を
     呼び出す設計です。<br />
     <strong>シークレット/プライベートウィンドウで使う場合</strong>は、貼り付けるのは
     <strong>open-english本体のURL</strong>(本番:
@@ -68,7 +68,7 @@
     open-english screen) — this open-cg-cad page itself has no dedicated UI for them yet
     (backend API only, see CLAUDE.md). GitHub writes work by decrypting a token inside
     open-english's embedded <code>vault.html</code> (a cross-origin iframe vault), which
-    then calls this open-cg-cad server's own <code>POST /v1/agent/github/commit</code>.
+    then calls this open-cg-cad server's own <code>POST /open_cg_cad.v1.Cad/GithubCommit</code>.
     <strong>If you're using an incognito/private window</strong>, paste in
     <strong>open-english's own URL</strong> (production:
     <code>https://easy-web.tokyo/open-english/</code>) — not <code>vault.html</code>'s or this
@@ -426,7 +426,7 @@ async function generate() {
   resultEl.textContent = "生成中... / Generating...";
   const body = currentGenerateRequestBody();
   try {
-    const res = await fetch(apiUrl("v1/generate"), {
+    const res = await fetch(apiUrl("open_cg_cad.v1.Cad/Generate"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -479,7 +479,7 @@ document.getElementById("generate-btn").addEventListener("click", generate);
 async function exportDxf() {
   const resultEl = document.getElementById("result");
   try {
-    const res = await fetch(apiUrl("v1/generate/dxf"), {
+    const res = await fetch(apiUrl("open_cg_cad.v1.Cad/GenerateDxf"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(currentGenerateRequestBody()),
@@ -525,7 +525,7 @@ function fileToBase64(file) {
 
 async function uploadOneFile(file, category, description) {
   const data_base64 = await fileToBase64(file);
-  const res = await fetch(apiUrl("v1/drawings/upload"), {
+  const res = await fetch(apiUrl("open_cg_cad.v1.Cad/UploadDrawing"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ filename: file.name, category, description, data_base64 }),
@@ -566,7 +566,7 @@ async function uploadDrawings() {
 async function analyzeDrawing(id, containerEl) {
   containerEl.textContent = "解析中... / Analyzing...";
   try {
-    const res = await fetch(apiUrl("v1/drawings/analyze"), {
+    const res = await fetch(apiUrl("open_cg_cad.v1.Cad/AnalyzeDrawing"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id }),
@@ -589,7 +589,7 @@ function guessMimeType(filename) {
 }
 
 async function downloadDrawing(id, filename) {
-  const res = await fetch(apiUrl("v1/drawings/get?id=" + encodeURIComponent(id)));
+  const res = await fetch(apiUrl("open_cg_cad.v1.Cad/GetDrawing"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: Number(id) }) });
   const data = await res.json();
   if (!data.ok) {
     alert("ダウンロードに失敗しました / Download failed: " + (data.error || "unknown"));
@@ -611,7 +611,7 @@ async function loadDrawings() {
   const listEl = document.getElementById("drawings-list");
   listEl.textContent = "読み込み中... / Loading...";
   try {
-    const res = await fetch(apiUrl("v1/drawings"));
+    const res = await fetch(apiUrl("open_cg_cad.v1.Cad/ListDrawings"), { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     const data = await res.json();
     if (!data.ok || data.drawings.length === 0) {
       listEl.textContent = "保存済みの図面はまだありません。 / No drawings saved yet.";
