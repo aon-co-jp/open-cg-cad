@@ -319,6 +319,7 @@ Based only on this text description (you cannot see the actual drawing image), p
     };
     let resp = match client
         .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
+        .header("x-tenant", "open-cg-cad")
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 96}))
         .send()
         .await
@@ -432,6 +433,7 @@ Based only on these two text descriptions (you cannot see the actual drawing ima
     };
     let resp = match client
         .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
+        .header("x-tenant", "open-cg-cad")
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
         .send()
         .await
@@ -547,6 +549,7 @@ Propose how to merge these designs into one, and list what to keep, drop, or rec
     };
     let resp = match client
         .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
+        .header("x-tenant", "open-cg-cad")
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
         .send()
         .await
