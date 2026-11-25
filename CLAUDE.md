@@ -1397,3 +1397,7 @@ CAD自動生成、(3)耐震性等を含む建設シミュレーション、(4)�
 - 確認: 実サーバーを起動して `curl` で、旧経路404・`/healthz` 200・ListDrawings 200・重複キー400・型違い400・未存在404を確認。`index.html` のブラウザ操作での通し確認と、本番(VPS)反映は未実施。
 - 注意: 画面の共有ログイン表示は open-english の `GET v1/auth/session` を呼ぶ。open-english 側の移行状況に合わせて別途直す必要があるかもしれない(未確認)。
 - 例外: `/`(画面)・`/healthz`。
+
+## Versionless API の方針 / Versionless API policy (2026-11-25)
+**日本語**: このリポジトリのAPIは **Versionless**(URL・パッケージ名に `v1` 等を付けず、互換性を壊さず足すだけで進化させる)。欄は足すだけ・足す欄は省略可能・知らない欄は無視・名前変更は新名を足して旧を非推奨に(期限は既定で6か月以上、使用0を確認してから削除)・enumは未知の値を許容・安全上の緊急修正は例外。既存の `.v1` は呼び出し側を壊さないよう当面残し、版なしの別名を追加して段階的に畳む。詳細・出典は [`runo/API-POLICY.md`](https://github.com/aon-co-jp/runo/blob/main/API-POLICY.md) 末尾。適用はこれから順に行う。
+**English**: This repository's APIs are **Versionless**: no `v1` in URLs or package names; evolve by adding only, without breaking compatibility. Only add fields, new fields are optional, ignore unknown fields, rename by adding the new name and deprecating the old (default deadline 6 months or more, remove only after confirming zero use), tolerate unknown enum values, emergency security fixes are the exception. Existing `.v1` names stay for now so callers do not break; a versionless alias is added and `.v1` is retired in stages. Details and sources: the end of [`runo/API-POLICY.md`](https://github.com/aon-co-jp/runo/blob/main/API-POLICY.md). Rollout is step by step.
