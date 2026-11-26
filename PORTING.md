@@ -193,3 +193,8 @@ CLAUDE.mdのHANDOFF参照)——各ソルバー自体のプラットフォーム
 - aruaru-llm の REST 全廃に伴い、本リポジトリの呼び出し先を `POST /aruaru_llm.v1.Llm/<Method>`(JSON本文)へ変更した(旧 `/v1/...` は aruaru-llm 側で削除済み)。
 - 対象は aruaru-llm を呼ぶ箇所のみ。本リポジトリ自身のAPI・他サービス(aruaru-search 等)の呼び出しは別途。
 - 未検証: ビルド/実サーバー往復(aruaru-llm の `connect-migration` ブランチが VPS 未反映のため)。aruaru-llm の main マージ・VPS反映と同時に反映すること。
+
+
+## 2026-11-26 x-tenant と呼び出し側のConnect化 / x-tenant and Connect callers
+**日本語**: aruaru-llm 呼び出しに `x-tenant: open-cg-cad` を付けました(`17d6eda`、ソースは `68aa70e` で既に Connect)。VPS は10/28の旧版のままだったため、WSL(glibc 2.39)でビルドし、バックアップ `open-cg-cad-server.before-connect-20261118`・カナリア・自動ロールバック付きで本番(8105)とデモ(8112)を入れ替えました。実測: 新 `Cad/Generate` 400(空入力の検証)、旧 `/v1/generate` 404、active、エラーログ0。**未確認**: `Generate` の正常系(VPSでは推論に3分超のため打っていない)、実トラフィックでの `x-tenant` 計上。
+**English**: Added `x-tenant: open-cg-cad` to the aruaru-llm call (`17d6eda`; the source was already on Connect in `68aa70e`). The VPS still ran the 10/28 build, so it was built in WSL (glibc 2.39) and swapped into production (8105) and demo (8112) with backup `open-cg-cad-server.before-connect-20261118`, a canary and automatic rollback. Measured: new `Cad/Generate` 400 (empty-input validation), old `/v1/generate` 404, active, no errors. **Unverified**: the `Generate` success path (inference takes over 3 minutes on the VPS, not run) and `x-tenant` counting with real traffic.
