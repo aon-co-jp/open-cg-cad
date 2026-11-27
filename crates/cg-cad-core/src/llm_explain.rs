@@ -1,4 +1,4 @@
-//! `aruaru-llm`(既存のHTTP API、`POST /aruaru_llm.v1.Llm/Generate`(Connect))と連携し、
+//! `aruaru-llm`(既存のHTTP API、`POST /aruaru_llm.Llm/Generate`(Connect))と連携し、
 //! [`crate::structural`]が求めた**計算済みの数値結果**を自然言語の
 //! 説明文へ変換する。
 //!
@@ -80,7 +80,7 @@ pub fn build_explanation_prompt(result: &StructuralAnalysisResult, seismic_inten
     lines.join("\n")
 }
 
-/// `aruaru-llm`の`POST /aruaru_llm.v1.Llm/Generate`(Connect)を実際に呼び出し、説明文を取得する。
+/// `aruaru-llm`の`POST /aruaru_llm.Llm/Generate`(Connect)を実際に呼び出し、説明文を取得する。
 ///
 /// `base_url`: 例 `http://127.0.0.1:4600`(`aruaru-llm`のCLAUDE.md記載の
 /// 既定ポート)。同期(blocking)HTTPクライアントを使う——本クレート
@@ -120,7 +120,7 @@ pub fn build_airbag_explanation_prompt(result: &AirbagSimResult, airbag_label: &
     )
 }
 
-/// `aruaru-llm`の`POST /aruaru_llm.v1.Llm/Generate`(Connect)を実際に呼び出し、エアバッグ
+/// `aruaru-llm`の`POST /aruaru_llm.Llm/Generate`(Connect)を実際に呼び出し、エアバッグ
 /// シミュレーション結果の説明文を取得する(`explain_crash_via_aruaru_llm`
 /// と同じHTTP連携方式)。
 pub fn explain_airbag_via_aruaru_llm(base_url: &str, result: &AirbagSimResult, airbag_label: &str) -> Result<String, LlmExplainError> {
@@ -149,7 +149,7 @@ pub fn build_crash_explanation_prompt(result: &CrashSimResult, vehicle_label: &s
     )
 }
 
-/// `aruaru-llm`の`POST /aruaru_llm.v1.Llm/Generate`(Connect)を実際に呼び出し、衝突シミュレーション
+/// `aruaru-llm`の`POST /aruaru_llm.Llm/Generate`(Connect)を実際に呼び出し、衝突シミュレーション
 /// 結果の説明文を取得する(`explain_via_aruaru_llm`と同じHTTP連携方式)。
 pub fn explain_crash_via_aruaru_llm(base_url: &str, result: &CrashSimResult, vehicle_label: &str) -> Result<String, LlmExplainError> {
     let prompt = build_crash_explanation_prompt(result, vehicle_label);
@@ -177,7 +177,7 @@ pub fn build_tunnel_noise_explanation_prompt(result: &NoseOptimizationResult) ->
     lines.join("\n")
 }
 
-/// `aruaru-llm`の`POST /aruaru_llm.v1.Llm/Generate`(Connect)を実際に呼び出し、トンネル微気圧波
+/// `aruaru-llm`の`POST /aruaru_llm.Llm/Generate`(Connect)を実際に呼び出し、トンネル微気圧波
 /// シミュレーション結果の説明文を取得する。
 pub fn explain_tunnel_noise_via_aruaru_llm(base_url: &str, result: &NoseOptimizationResult) -> Result<String, LlmExplainError> {
     let prompt = build_tunnel_noise_explanation_prompt(result);
@@ -185,10 +185,10 @@ pub fn explain_tunnel_noise_via_aruaru_llm(base_url: &str, result: &NoseOptimiza
     Ok(format!("{}{}", completion, TUNNEL_NOISE_DISCLAIMER_JA))
 }
 
-/// `aruaru-llm`の`POST /aruaru_llm.v1.Llm/Generate`(Connect)を呼び出す共通処理
+/// `aruaru-llm`の`POST /aruaru_llm.Llm/Generate`(Connect)を呼び出す共通処理
 /// (`explain_via_aruaru_llm`から抽出、3つの説明関数で重複させない)。
 fn call_generate(base_url: &str, prompt: &str) -> Result<String, LlmExplainError> {
-    let url = format!("{}/aruaru_llm.v1.Llm/Generate", base_url.trim_end_matches('/'));
+    let url = format!("{}/aruaru_llm.Llm/Generate", base_url.trim_end_matches('/'));
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()

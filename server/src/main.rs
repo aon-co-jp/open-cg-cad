@@ -318,7 +318,7 @@ Based only on this text description (you cannot see the actual drawing image), p
         Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
     };
     let resp = match client
-        .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
+        .post(format!("{}/aruaru_llm.Llm/Generate", base.trim_end_matches('/')))
         .header("x-tenant", "open-cg-cad")
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 96}))
         .send()
@@ -432,7 +432,7 @@ Based only on these two text descriptions (you cannot see the actual drawing ima
         Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
     };
     let resp = match client
-        .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
+        .post(format!("{}/aruaru_llm.Llm/Generate", base.trim_end_matches('/')))
         .header("x-tenant", "open-cg-cad")
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
         .send()
@@ -548,7 +548,7 @@ Propose how to merge these designs into one, and list what to keep, drop, or rec
         Err(e) => return rs_json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({"ok": false, "error": format!("client build failed: {e}")})),
     };
     let resp = match client
-        .post(format!("{}/aruaru_llm.v1.Llm/Generate", base.trim_end_matches('/')))
+        .post(format!("{}/aruaru_llm.Llm/Generate", base.trim_end_matches('/')))
         .header("x-tenant", "open-cg-cad")
         .json(&serde_json::json!({"prompt": prompt, "max_new_tokens": 128}))
         .send()
@@ -705,11 +705,11 @@ async fn main() {
     let db_analyze = Arc::clone(&db);
     let db_redesign = Arc::clone(&db);
     let db_merge = Arc::clone(&db);
-    const P: &str = "/open_cg_cad.v1.Cad/";
+    const P: &str = "/open_cg_cad.Cad/";
     let app = Route::new()
         .at("/", get(handler_fn(move |_req, _p| async move { index().await })))
         .at("/healthz", get(handler_fn(move |_req, _p| async move { healthz().await })))
-        // 自前のAPIは Connect の単純呼び出し: `POST /open_cg_cad.v1.Cad/<Method>`(本文はJSON)。
+        // 自前のAPIは Connect の単純呼び出し: `POST /open_cg_cad.Cad/<Method>`(本文はJSON)。
         .at(&format!("{P}Generate"), post(handler_fn(move |req, _p| async move { generate(req).await })))
         .at(&format!("{P}GenerateDxf"), post(handler_fn(move |req, _p| async move { generate_dxf(req).await })))
         .at(&format!("{P}UploadDrawing"), post(handler_fn(move |req, _p| { let db = Arc::clone(&db_upload); async move { upload_drawing(req, db).await } })))
